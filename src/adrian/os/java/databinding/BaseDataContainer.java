@@ -9,9 +9,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * Base class that handles all databinding logic.
- * Data classes can extend this instead of implementing all the databinding
- * logic themselves.
+ * Base class that handles all data binding logic for data containers.
+ * Provides thread-safe field access, automatic synchronization between bound
+ * objects,
+ * and timestamp-based conflict resolution for concurrent updates.
  */
 public abstract class BaseDataContainer implements IBindable {
 
@@ -24,7 +25,10 @@ public abstract class BaseDataContainer implements IBindable {
     private final Map<String, ReentrantReadWriteLock> fieldLocks = new ConcurrentHashMap<>();
 
     /**
-     * Constructor for 'master' data instances.
+     * Constructor for 'master' data instances that don't inherit from other
+     * containers.
+     *
+     * @param schema the schema defining the fields and their access permissions
      */
     protected BaseDataContainer(final DataSchema schema) {
         this.schema = schema;
@@ -33,6 +37,10 @@ public abstract class BaseDataContainer implements IBindable {
 
     /**
      * Constructor that automatically copies field values from a master container.
+     * Used for creating 'slave' objects that inherit values from a master.
+     *
+     * @param schema the schema defining the fields and their access permissions
+     * @param master the master container to copy initial values from
      */
     protected BaseDataContainer(final DataSchema schema, final BaseDataContainer master) {
         this.schema = schema;
@@ -60,11 +68,21 @@ public abstract class BaseDataContainer implements IBindable {
         initValues(initialValues);
     }
 
+    /**
+     * Gets the unique identifier for this data container.
+     *
+     * @return the unique UUID for this container
+     */
     @Override
     public UUID getID() {
         return this.id;
     }
 
+    /**
+     * Gets the schema that defines this container's structure.
+     *
+     * @return the data schema
+     */
     protected DataSchema getSchema() {
         return this.schema;
     }
@@ -79,7 +97,10 @@ public abstract class BaseDataContainer implements IBindable {
     }
 
     /**
-     * Initialize field values. This does not trigger any databinding updates.
+     * Initialize field values without triggering any data binding updates.
+     * Used during object construction to set initial values.
+     *
+     * @param initialValues map of field names to their initial values
      */
     protected void initValues(final Map<String, Object> initialValues) {
         for (Map.Entry<String, Object> entry : initialValues.entrySet()) {
@@ -94,7 +115,13 @@ public abstract class BaseDataContainer implements IBindable {
     }
 
     /**
-     * Generic getter for any field
+     * Generic getter for any field defined in the schema.
+     *
+     * @param <T> the expected type of the field value
+     * @param fieldName the name of the field to retrieve
+     * @return the current value of the field
+     * @throws IllegalArgumentException if the field is not readable or doesn't
+     *             exist
      */
     @SuppressWarnings("unchecked")
     public <T> T getFieldValue(final String fieldName) {
@@ -108,8 +135,11 @@ public abstract class BaseDataContainer implements IBindable {
     }
 
     /**
-     * Generic setter for any field. Needs to be called by every specific public
-     * setter!
+     * Generic setter for any field. Must be called by every specific public setter
+     * to ensure proper data binding and synchronization.
+     *
+     * @param fieldName the name of the field to set
+     * @param value the new value for the field
      */
     protected void setFieldValue(final String fieldName, final Object value) {
         UpdateChain chain = new UpdateChain();
@@ -160,7 +190,9 @@ public abstract class BaseDataContainer implements IBindable {
     }
 
     /**
-     * Get all locks for the readable fields (for safe multi-field operations)
+     * Get all locks for the readable fields (for safe multi-field operations).
+     *
+     * @return array of read-write locks for all readable fields
      */
     protected ReentrantReadWriteLock[] getReadableLocks() {
         return this.schema.getReadableFields().stream().map(fielDef -> this.fieldLocks.get(fielDef.getFieldName()))
@@ -168,17 +200,13 @@ public abstract class BaseDataContainer implements IBindable {
     }
 
     /**
-     * Get the lock for a specific field (used by DataFactory)
+     * Get the lock for a specific field.
+     *
+     * @param fieldName the name of the field
+     * @return the read-write lock for the specified field
      */
     protected ReentrantReadWriteLock getFieldLock(final String fieldName) {
         return this.fieldLocks.get(fieldName);
-    }
-
-    /**
-     * Bind this container to another bindable object
-     */
-    void bindTo(final IBindable bindable) {
-        DataBinder.bind(bindable, this::updateField);
     }
 
     /**
@@ -211,7 +239,8 @@ public abstract class BaseDataContainer implements IBindable {
     }
 
     /**
-     * Print all fields and their values to the console
+     * Print all fields and their values to the console for debugging purposes.
+     * Shows field names, values, and timestamps in a readable format.
      */
     public void printAllFields() {
         System.out.println("=== Data Container: " + getClass().getSimpleName() + " (ID: " + this.id + ") ===");
@@ -237,6 +266,5 @@ public abstract class BaseDataContainer implements IBindable {
         }
         System.out.println();
     }
-
 
 }
