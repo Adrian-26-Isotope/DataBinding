@@ -17,8 +17,8 @@ public class MultiLockManager {
      * Enumeration defining the types of locks that can be acquired.
      */
     public enum LockType {
-        READ,
-        WRITE;
+                          READ,
+                          WRITE;
     }
 
     /**
@@ -27,7 +27,7 @@ public class MultiLockManager {
      * If any exception occurs during lock acquisition, all previously acquired
      * locks are released.
      *
-     * @param type  the type of lock to acquire (READ or WRITE)
+     * @param type the type of lock to acquire (READ or WRITE)
      * @param locks variable number of ReentrantReadWriteLock objects to lock
      * @return list of acquired locks in the same order (for unlocking)
      */
@@ -54,12 +54,13 @@ public class MultiLockManager {
                 }
             }
             return acquiredLocks;
-        } catch (Exception e) {
+        }
+        catch (Exception e) {
             // If any exception occurs, unlock all previously acquired locks
             unlockAll(acquiredLocks);
             // TODO exception handling
             e.printStackTrace();
-            return new ArrayList<Lock>();
+            return new ArrayList<>();
         }
     }
 
@@ -81,7 +82,8 @@ public class MultiLockManager {
             if (lock != null) {
                 try {
                     lock.unlock();
-                } catch (Exception e) {
+                }
+                catch (Exception e) {
                     // TODO exception handling
                     e.printStackTrace();
                 }
@@ -94,7 +96,7 @@ public class MultiLockManager {
      * try-with-resources.
      * Returns an AutoCloseable that will unlock all acquired locks when closed.
      *
-     * @param type  the type of lock to acquire (READ or WRITE)
+     * @param type the type of lock to acquire (READ or WRITE)
      * @param locks variable number of ReentrantReadWriteLock objects to lock
      * @return AutoCloseable that will unlock all acquired locks
      */

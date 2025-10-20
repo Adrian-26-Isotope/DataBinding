@@ -9,19 +9,19 @@ public class DataBindingDemo {
 
     public static void main(final String[] args) {
         // Create master data
-        MasterDataV2 master = new MasterDataV2("initial", "initial", "initial");
+        MasterData master = new MasterData("initial", "initial", "initial");
         master.printAllFields();
 
         // Create slave data with full read-write access
-        SlaveData1V2 slave1 = master.createSlaveData1();
+        SlaveData1 slave1 = master.createSlaveData1();
         slave1.printAllFields();
 
         // Create slave data with read-only access
-        SlaveData2V2 slave2 = master.createSlaveData2();
+        SlaveData2 slave2 = master.createSlaveData2();
         slave2.printAllFields();
 
         // Create mapped data with different field names
-        SlaveData3V2 slave3 = slave1.createSlaveData3();
+        SlaveData3 slave3 = slave1.createSlaveData3();
         slave3.printAllFields();
 
 

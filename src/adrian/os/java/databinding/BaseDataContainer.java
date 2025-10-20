@@ -124,7 +124,7 @@ public abstract class BaseDataContainer implements IBindable {
      *             exist
      */
     @SuppressWarnings("unchecked")
-    public <T> T getFieldValue(final String fieldName) {
+    protected <T> T getFieldValue(final String fieldName) {
         FieldDefinition fieldDef = this.schema.getFieldDefinition(fieldName);
         if ((fieldDef == null) || !fieldDef.isReadable()) {
             throw new IllegalArgumentException("Field '" + fieldName + "' is not readable");
