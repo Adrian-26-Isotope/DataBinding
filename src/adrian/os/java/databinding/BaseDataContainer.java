@@ -213,28 +213,28 @@ public abstract class BaseDataContainer implements IBindable {
      * Bind specific field to another bindable object
      */
     void bindTo(final IBindable bindable, final String fieldName) {
-        DataBinder.bind(bindable, fieldName, this::updateField);
+        DataBinder.bind(bindable, fieldName, this, BaseDataContainer::onFieldChange);
     }
 
     /**
      * Handle incoming field updates from other bound objects
      */
-    private void updateField(final String fieldName, final Object oldValue, final Object newValue,
-            final UpdateChain chain) {
+    private static void onFieldChange(final BaseDataContainer receiver, final String fieldName, final Object oldValue,
+            final Object newValue, final UpdateChain chain) {
         // Check if this object is already being updated in the current chain
-        if (chain.contains(getID())) {
+        if (chain.contains(receiver.getID())) {
             return;
         }
 
         // Add this object to the update chain
-        if (!chain.add(getID())) {
+        if (!chain.add(receiver.getID())) {
             return;
         }
 
         // Check if we have this field and if it's writable
-        FieldDefinition fieldDef = this.schema.getFieldDefinition(fieldName);
+        FieldDefinition fieldDef = receiver.getSchema().getFieldDefinition(fieldName);
         if (fieldDef != null) {
-            setFieldValue(fieldName, newValue, chain);
+            receiver.setFieldValue(fieldName, newValue, chain);
         }
     }
 

@@ -19,6 +19,7 @@ This framework provides a declarative approach to data binding where you can:
 - **Cycle Prevention**: Built-in cycle detection prevents infinite update loops using [`UpdateChain`](src/adrian/os/java/databinding/UpdateChain.java)
 - **Conflict Resolution**: Timestamp-based resolution for concurrent updates
 - **Flexible Access Control**: Per-field read-only or read-write access
+- **Memory Leak Prevention**: Automatic cleanup of bindings when objects are garbage collected
 
 ## Quick Start
 
@@ -95,6 +96,7 @@ System.out.println(slave.getName()); // Prints: "updated"
 - **[`DataFactory`](src/adrian/os/java/databinding/DataFactory.java)**: Thread-safe factory for creating bound objects
 - **[`DataBinder`](src/adrian/os/java/databinding/DataBinder.java)**: Central registry managing binding relationships
 - **[`UpdateChain`](src/adrian/os/java/databinding/UpdateChain.java)**: Cycle detection and timestamp management
+- **[`DataBinderCleaner`](src/adrian/os/java/databinding/DataBinderCleaner.java)** Deamon thread to ensure memory is cleaned properly
 
 ### Thread Safety
 
@@ -111,6 +113,22 @@ The system provides strong eventual consistency guarantees - all linked data ins
 However, it doesn't guarantee instantaneous consistency - there may be brief moments where linked objects have different values during update propagation. The design prioritizes avoiding deadlocks and infinite loops over strict immediate consistency.
 
 For most practical applications, this approach provides adequate consistency while maintaining good performance and avoiding common concurrency pitfalls like deadlocks.
+
+### Memory Management
+
+The framework includes a sophisticated automatic cleanup mechanism to prevent memory leaks:
+
+- **[`DataBinderCleaner`](src/adrian/os/java/databinding/DataBinderCleaner.java)**: Uses `PhantomReference` to detect when data objects are garbage collected.
+- **[`WeakFieldChangeCallback`](src/adrian/os/java/databinding/WeakFieldChangeCallback.java)**: Wraps callbacks with weak references to prevent callback owners not being garbage collected.
+- **Automatic Cleanup**: Background daemon thread continuously monitors and removes stale bindings.
+- **Dual Tracking**: Separate tracking for transmitters and receivers ensures complete cleanup.
+
+The cleanup system automatically removes:
+- Transmitter bindings when the source object is garbage collected
+- Receiver callbacks when the target object is garbage collected
+- Expired weak references that point to collected objects
+
+This ensures that the [`DataBinder`](src/adrian/os/java/databinding/DataBinder.java) cache doesn't prevent garbage collection of bound objects, preventing memory leaks in long-running applications.
 
 ## Example
 
