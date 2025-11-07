@@ -66,7 +66,7 @@ public class ReadOnlySlaveData extends BaseDataContainer {
         FieldDefinition.readOnly(MyMasterData.VALUE_FIELD)
     );
 
-    public ReadOnlySlaveData(BaseDataContainer master, DataSchema schema) {
+    public ReadOnlySlaveData(DataSchema schema, BaseDataContainer master) {
         super(schema, master);
     }
 
