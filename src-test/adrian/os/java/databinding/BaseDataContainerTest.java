@@ -109,4 +109,17 @@ class BaseDataContainerTest {
         assertEquals(val, this.slave1.getAdditionalInfo());
         assertEquals(val, this.slave3.getAdditionalInfo());
     }
+
+    @Test
+    void testReadOnly() {
+        assertThrows(IllegalArgumentException.class,
+                () -> this.slave2.setFieldValue(MasterData.NAME_FIELD, "expect exception"));
+    }
+
+    @Test
+    void testUnknownField() {
+        assertThrows(IllegalArgumentException.class, () -> this.master.getFieldValue("NO_FIELD"));
+        assertThrows(IllegalArgumentException.class, () -> this.master.setFieldValue("NO_FIELD", "expect exception"));
+    }
+
 }

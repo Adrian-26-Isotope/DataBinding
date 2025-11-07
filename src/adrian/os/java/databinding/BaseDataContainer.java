@@ -126,7 +126,10 @@ public abstract class BaseDataContainer implements IBindable {
     @SuppressWarnings("unchecked")
     protected <T> T getFieldValue(final String fieldName) {
         FieldDefinition fieldDef = this.schema.getFieldDefinition(fieldName);
-        if ((fieldDef == null) || !fieldDef.isReadable()) {
+        if (fieldDef == null) {
+            throw new IllegalArgumentException("Field '" + fieldName + "' not present");
+        }
+        if (!fieldDef.isReadable()) {
             throw new IllegalArgumentException("Field '" + fieldName + "' is not readable");
         }
 
@@ -142,13 +145,23 @@ public abstract class BaseDataContainer implements IBindable {
      * @param value the new value for the field
      */
     protected void setFieldValue(final String fieldName, final Object value) {
+        FieldDefinition fieldDef = this.schema.getFieldDefinition(fieldName);
+        if (fieldDef == null) {
+            throw new IllegalArgumentException("Field '" + fieldName + "' not present.");
+        }
+        if (!fieldDef.isWritable()) {
+            throw new IllegalArgumentException("Field '" + fieldName + "' is not writable.");
+        }
+
         UpdateChain chain = new UpdateChain();
         chain.add(getID());
         setFieldValue(fieldName, value, chain);
     }
 
     /**
-     * Internal setter with update chain
+     * Internal setter with update chain.<br>
+     * This method is called by data binding mechanism. Field value must receive updates from master, even if
+     * not writable by user.
      */
     private void setFieldValue(final String fieldName, final Object newValue, final UpdateChain chain) {
         FieldDefinition fieldDef = this.schema.getFieldDefinition(fieldName);
