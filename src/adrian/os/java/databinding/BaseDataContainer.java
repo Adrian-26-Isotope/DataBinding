@@ -256,7 +256,7 @@ public abstract class BaseDataContainer implements IBindable {
      * Shows field names, values, and timestamps in a readable format.
      */
     public void printAllFields() {
-        System.out.println("=== Data Container: " + getClass().getSimpleName() + " (ID: " + this.id + ") ===");
+        System.out.println("=== Data Container: " + getClass().getSimpleName() + " (ID: " + getID() + ") ===");
 
         for (FieldDefinition fieldDef : this.schema.getFieldDefinitions()) {
             String fieldName = fieldDef.getFieldName();
