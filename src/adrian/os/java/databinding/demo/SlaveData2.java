@@ -12,7 +12,7 @@ public class SlaveData2 extends BaseDataContainer {
     public static final DataSchema SCHEMA = new DataSchema(FieldDefinition.readOnly(MasterData.NAME_FIELD),
             FieldDefinition.readOnly(MasterData.NOTES_FIELD));
 
-    public SlaveData2(final BaseDataContainer master, final DataSchema schema) {
+    public SlaveData2(final DataSchema schema, final BaseDataContainer master) {
         super(schema, master);
     }
 

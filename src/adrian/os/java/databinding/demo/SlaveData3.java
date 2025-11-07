@@ -10,7 +10,7 @@ public class SlaveData3 extends BaseDataContainer {
             FieldDefinition.readWrite(MasterData.NOTES_FIELD), FieldDefinition.readOnly(MasterData.TYPE_FIELD),
             FieldDefinition.readWrite(SlaveData1.ADDITIONAL_INFO_FIELD));
 
-    public SlaveData3(final BaseDataContainer master, final DataSchema schema) {
+    public SlaveData3(final DataSchema schema, final BaseDataContainer master) {
         super(schema, master);
     }
 

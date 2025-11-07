@@ -24,9 +24,9 @@ public class DataFactory {
      * between
      * the master and newly created object.
      *
-     * @param <T>     the type of BaseDataContainer to create
-     * @param master  the master data container to copy values from
-     * @param schema  the schema defining the structure of the new object
+     * @param <T> the type of BaseDataContainer to create
+     * @param master the master data container to copy values from
+     * @param schema the schema defining the structure of the new object
      * @param builder the builder function to create the new instance
      * @return a new data object with proper initialization and binding
      */
@@ -35,22 +35,23 @@ public class DataFactory {
 
         // Get locks for all readable fields in the master that we need
         List<FieldDefinition> readableFields = schema.getReadableFields();
-        ReentrantReadWriteLock[] masterLocks = readableFields.stream()
-                .map(fieldDef -> master.getFieldLock(fieldDef.getFieldName()))
-                .filter(Objects::nonNull).toArray(ReentrantReadWriteLock[]::new);
+        ReentrantReadWriteLock[] masterLocks =
+                readableFields.stream().map(fieldDef -> master.getFieldLock(fieldDef.getFieldName()))
+                        .filter(Objects::nonNull).toArray(ReentrantReadWriteLock[]::new);
 
         List<Lock> acquiredLocks = null;
         try {
             acquiredLocks = MultiLockManager.lockAll(MultiLockManager.LockType.READ, masterLocks);
 
             // Create the new data object with current values from master
-            T newDataObject = builder.build(master, schema);
+            T newDataObject = builder.build(schema, master);
 
             // Set up bidirectional binding
             setupBinding(master, newDataObject);
 
             return newDataObject;
-        } finally {
+        }
+        finally {
             MultiLockManager.unlockAll(acquiredLocks);
         }
     }

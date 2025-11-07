@@ -17,5 +17,5 @@ public interface DataObjectBuilder<T extends BaseDataContainer> {
      * @param schema the schema defining the structure of the new object
      * @return a new data object instance
      */
-    T build(BaseDataContainer master, DataSchema schema);
+    T build(DataSchema schema, BaseDataContainer master);
 }

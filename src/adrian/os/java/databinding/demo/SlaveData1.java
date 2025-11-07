@@ -16,7 +16,7 @@ public class SlaveData1 extends BaseDataContainer {
             FieldDefinition.readWrite(MasterData.TYPE_FIELD), FieldDefinition.readWrite(MasterData.NOTES_FIELD),
             FieldDefinition.readWrite(ADDITIONAL_INFO_FIELD));
 
-    public SlaveData1(final BaseDataContainer master, final DataSchema schema) {
+    public SlaveData1(final DataSchema schema, final BaseDataContainer master) {
         super(schema, master);
         setFieldValue(ADDITIONAL_INFO_FIELD, "initial");
     }
