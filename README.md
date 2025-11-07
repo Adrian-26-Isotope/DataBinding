@@ -37,8 +37,16 @@ public class MyMasterData extends BaseDataContainer {
 
     public MyMasterData(String name, int value) {
         super(SCHEMA);
-        setFieldValue(NAME_FIELD, name);
-        setFieldValue(VALUE_FIELD, value);
+
+        // DONT do this - throws exception for read only fields
+        // setFieldValue(NAME_FIELD, name);
+        // setFieldValue(VALUE_FIELD, value);
+
+        // DO this instead
+        Map<String, Object> initialValues = new HashMap<>();
+        initialValues.put(NAME_FIELD, name);
+        initialValues.put(VALUE_FIELD, value);
+        initValues(initialValues);
     }
 
     public String getName() { return getFieldValue(NAME_FIELD); }
