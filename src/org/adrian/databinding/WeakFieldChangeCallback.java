@@ -1,4 +1,4 @@
-package adrian.os.java.databinding;
+package org.adrian.databinding;
 
 import java.lang.ref.WeakReference;
 import java.util.Objects;

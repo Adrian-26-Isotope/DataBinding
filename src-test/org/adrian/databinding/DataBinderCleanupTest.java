@@ -1,7 +1,8 @@
-package adrian.os.java.databinding;
+package org.adrian.databinding;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -10,6 +11,12 @@ import org.junit.jupiter.api.Test;
  * garbage collected and verifies that the DataBinder cache is cleaned up.
  */
 public class DataBinderCleanupTest {
+
+    @BeforeEach
+    void setUp() {
+        DataBinder.reset();
+        DataBinderCleaner.reset();
+    }
 
     @Test
     void testCleanup() throws InterruptedException {

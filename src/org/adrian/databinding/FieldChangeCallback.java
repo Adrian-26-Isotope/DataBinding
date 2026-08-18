@@ -1,0 +1,21 @@
+package org.adrian.databinding;
+
+/**
+ * Functional interface for handling field change notifications in data binding.
+ * Implementations of this interface are called when bound fields are modified.
+ */
+@FunctionalInterface
+public interface FieldChangeCallback {
+
+    /**
+     * Called when a field value changes in a bound object.
+     *
+     * @param receiver the data container that shall react on the field changes
+     * @param fieldName the name of the field that changed
+     * @param oldValue the previous value of the field
+     * @param newValue the new value of the field
+     * @param chain the update chain to prevent infinite loops
+     */
+    void onFieldChange(BaseDataContainer receiver, String fieldName, Object oldValue, Object newValue,
+            UpdateChain chain);
+}

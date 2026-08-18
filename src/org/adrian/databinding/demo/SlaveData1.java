@@ -1,9 +1,9 @@
-package adrian.os.java.databinding.demo;
+package org.adrian.databinding.demo;
 
-import adrian.os.java.databinding.BaseDataContainer;
-import adrian.os.java.databinding.DataFactory;
-import adrian.os.java.databinding.DataSchema;
-import adrian.os.java.databinding.FieldDefinition;
+import org.adrian.databinding.BaseDataContainer;
+import org.adrian.databinding.DataFactory;
+import org.adrian.databinding.DataSchema;
+import org.adrian.databinding.FieldDefinition;
 
 /**
  * SlaveData1 that inherits all fields from MasterData with read-write access. And add a new field.

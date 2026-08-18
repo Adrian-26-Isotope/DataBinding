@@ -1,4 +1,4 @@
-package adrian.os.java.databinding;
+package org.adrian.databinding;
 
 import java.lang.ref.PhantomReference;
 import java.lang.ref.ReferenceQueue;
@@ -88,6 +88,14 @@ public class DataBinderCleaner {
         }
     }
 
+
+    /**
+     * Clears all monitored container references. Intended for testing purposes only.
+     */
+    static void reset() {
+        instance.transmitterMap.clear();
+        instance.receiverMap.clear();
+    }
 
     /**
      * Gets the number of containers currently being monitored for garbage
