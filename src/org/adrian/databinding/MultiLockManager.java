@@ -22,14 +22,18 @@ public class MultiLockManager {
     }
 
     /**
-     * Locks multiple ReentrantReadWriteLocks in the given order using the specified
-     * lock type.
-     * If any exception occurs during lock acquisition, all previously acquired
-     * locks are released.
+     * Locks multiple ReentrantReadWriteLocks in the given order using the
+     * specified lock type. If any exception occurs during lock acquisition, all
+     * previously acquired locks are released and a
+     * {@link LockAcquisitionException} is thrown. An empty or {@code null}
+     * {@code locks} argument returns an empty list (no locks to acquire).
      *
      * @param type the type of lock to acquire (READ or WRITE)
      * @param locks variable number of ReentrantReadWriteLock objects to lock
-     * @return list of acquired locks in the same order (for unlocking)
+     * @return list of acquired locks in the same order (for unlocking); empty
+     *         when {@code locks} is {@code null} or empty
+     * @throws LockAcquisitionException if acquisition of any lock fails; any
+     *         locks acquired before the failure are released first
      */
     public static List<Lock> lockAll(final LockType type, final ReentrantReadWriteLock... locks) {
         if ((locks == null) || (locks.length == 0)) {
@@ -56,11 +60,9 @@ public class MultiLockManager {
             return acquiredLocks;
         }
         catch (Exception e) {
-            // If any exception occurs, unlock all previously acquired locks
             unlockAll(acquiredLocks);
-            // TODO exception handling
-            e.printStackTrace();
-            return new ArrayList<>();
+            throw new LockAcquisitionException(
+                    "Failed to acquire locks of type " + type + " for " + acquiredLocks.size() + " lock(s)", e);
         }
     }
 

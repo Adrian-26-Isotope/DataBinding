@@ -396,7 +396,7 @@ Slave3 notes: Slave3
 ```
 
 ## Requirements
-- Java 21 or higher
+- Java 25 or higher
 
 ## License
 

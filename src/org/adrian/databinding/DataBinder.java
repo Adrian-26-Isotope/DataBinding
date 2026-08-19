@@ -42,25 +42,30 @@ public class DataBinder {
      * Binds a callback to a specific field on the specified transmitter object.
      *
      * @param transmitter the source object to monitor
-     * @param fieldName the specific field name to monitor
-     * @param receiver the instance receiving field updates from the transmitter
-     * @param callback the callback to invoke when a field change gets triggered. <strong>IMPORTANT</strong> this
-     *            callback must not capture the receiver instance. See
-     *            {@link WeakFieldChangeCallback} for details.
+     * @param fieldName   the specific field name to monitor
+     * @param receiver    the instance receiving field updates from the transmitter
+     * @param callback    the callback to invoke when a field change gets triggered.
+     *                    <strong>IMPORTANT</strong> this
+     *                    callback must not capture the receiver instance. See
+     *                    {@link WeakFieldChangeCallback} for details.
      */
     public static void bind(final IBindable transmitter, final String fieldName, final BaseDataContainer receiver,
             final FieldChangeCallback callback) {
         WeakFieldChangeCallback weakCallback = new WeakFieldChangeCallback(receiver, callback);
 
         // add to main bindings cache
-        instance.transmitterBindings.computeIfAbsent(transmitter.getID(), k -> new ConcurrentHashMap<>())
-                .computeIfAbsent(fieldName, k -> new CopyOnWriteArrayList<>()).add(weakCallback);
+        instance.transmitterBindings.compute(transmitter.getID(), (_, fieldsCallbacks) -> {
+            Map<String, List<WeakFieldChangeCallback>> map = (fieldsCallbacks != null) ? fieldsCallbacks
+                    : new ConcurrentHashMap<>();
+            map.computeIfAbsent(fieldName, _ -> new CopyOnWriteArrayList<>()).add(weakCallback);
+            return map;
+        });
 
         // Add to receiver index for fast cleanup
         BindingReference bindingRef = new BindingReference(transmitter.getID(), fieldName, weakCallback);
-        instance.receiverBindings.computeIfAbsent(receiver.getID(), k -> new CopyOnWriteArrayList<>()).add(bindingRef);
+        instance.receiverBindings.computeIfAbsent(receiver.getID(), _ -> new CopyOnWriteArrayList<>()).add(bindingRef);
 
-        // regsiter for cleanup to avoid memory leaks
+        // register for cleanup to avoid memory leaks
         DataBinderCleaner.registerTransmitter(transmitter);
         DataBinderCleaner.registerReceiver(receiver);
     }
@@ -139,22 +144,10 @@ public class DataBinder {
 
     /** remove empty mappings from the cache */
     private static void cleanup(final UUID sourceId, final String fieldName) {
-        Map<String, List<WeakFieldChangeCallback>> fieldsCallbacks = instance.transmitterBindings.get(sourceId);
-        if (fieldsCallbacks == null) {
-            return;
-        }
-
-        List<WeakFieldChangeCallback> specificCallbacks = fieldsCallbacks.get(fieldName);
-        if (specificCallbacks == null) {
-            return;
-        }
-
-        if (specificCallbacks.isEmpty()) {
-            fieldsCallbacks.remove(fieldName);
-            if (fieldsCallbacks.isEmpty()) {
-                instance.transmitterBindings.remove(sourceId);
-            }
-        }
+        instance.transmitterBindings.computeIfPresent(sourceId, (_, fieldsCallbacks) -> {
+            fieldsCallbacks.computeIfPresent(fieldName, (_, callbacks) -> callbacks.isEmpty() ? null : callbacks);
+            return fieldsCallbacks.isEmpty() ? null : fieldsCallbacks;
+        });
     }
 
 
