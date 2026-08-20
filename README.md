@@ -20,6 +20,7 @@ This framework provides a declarative approach to data binding where you can:
 - **Conflict Resolution**: Timestamp-based resolution for concurrent updates
 - **Flexible Access Control**: Per-field read-only or read-write access
 - **Memory Leak Prevention**: Automatic cleanup of bindings when objects are garbage collected
+- **Multiple Registries**: Named [`DataBinder`](src/org/adrian/databinding/DataBinder.java) instances allow independent binding graphs in a single JVM, each with its own cleanup daemon
 
 ## Table of Contents
 
@@ -27,6 +28,7 @@ This framework provides a declarative approach to data binding where you can:
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Architecture](#architecture)
+- [Advanced Usage](#advanced-usage)
 - [Developer & Maintainer Guide](#developer--maintainer-guide)
 - [Example](#example)
 - [Requirements](#requirements)
@@ -114,7 +116,7 @@ System.out.println(slave.getName()); // Prints: "updated"
 - **[`DataSchema`](src/org/adrian/databinding/DataSchema.java)**: Defines field structure and access permissions
 - **[`FieldDefinition`](src/org/adrian/databinding/FieldDefinition.java)**: Specifies individual field access modes
 - **[`DataFactory`](src/org/adrian/databinding/DataFactory.java)**: Thread-safe factory for creating bound objects
-- **[`DataBinder`](src/org/adrian/databinding/DataBinder.java)**: Central registry managing binding relationships
+- **[`DataBinder`](src/org/adrian/databinding/DataBinder.java)**: Central registry managing binding relationships; a named multiton so independent binding graphs can coexist in one JVM
 - **[`UpdateChain`](src/org/adrian/databinding/UpdateChain.java)**: Cycle detection and timestamp management
 - **[`DataBinderCleaner`](src/org/adrian/databinding/DataBinderCleaner.java)** Deamon thread to ensure memory is cleaned properly
 
@@ -149,6 +151,46 @@ The cleanup system automatically removes:
 - Expired weak references that point to collected objects
 
 This ensures that the [`DataBinder`](src/org/adrian/databinding/DataBinder.java) cache doesn't prevent garbage collection of bound objects, preventing memory leaks in long-running applications.
+
+## Advanced Usage
+
+### Using Multiple Registries
+
+By default all containers register with the **default** `DataBinder` instance. You can create isolated binding graphs by switching the thread-local **active** instance before constructing containers. `setActive` returns an `AutoCloseable` scope that restores the previous active instance when closed:
+
+```java
+// Use a dedicated registry for this scope
+try (DataBinder.Scope scope = DataBinder.setActive("session-1")) {
+    MyMasterData master = new MyMasterData("initial", 42);   // binds into "session-1"
+    ReadOnlySlaveData slave = master.createSlave();          // inherits master's registry
+} // "default" restored automatically
+
+// A different registry is fully isolated from "session-1"
+try (DataBinder.Scope scope = DataBinder.setActive("session-2")) {
+    MyMasterData other = new MyMasterData("other", 0);       // binds into "session-2"
+} // "default" restored automatically
+```
+
+Scopes nesting: closing an inner scope restores the outer scope's active name, not necessarily "default". Slaves created via `DataFactory.createFrom` always inherit the master's registry, so a binding graph stays within one `DataBinder` regardless of what is active at slave-creation time. Named instances (and their cleanup daemon threads) are created lazily on first use and can be shut down with `DataBinder.remove("session-1")`.
+
+### Manual Binding with `bindTo` and `bind`
+
+`BaseDataContainer.bindTo(transmitter, fieldName)` and `DataBinder.bind(transmitter, fieldName, receiver, callback)` are public APIs for cases where the schema-driven `DataFactory.createFrom` flow is too restrictive — for example, binding two containers with different field names, wiring a custom `FieldChangeCallback`, or building a topology that isn't a simple master/slave pair.
+
+`DataFactory.createFrom` does two things that manual binding does **not**:
+
+1. **Copies field values** from master to slave during construction (so the slave starts with the master's current values).
+2. **Sets up both directions** (master→slave for readable fields, slave→master for writable fields) based on the slave's schema.
+
+When you bind manually, you are responsible for both. The risks:
+
+| Risk | What happens | Mitigation |
+|------|-------------|------------|
+| **Malformed topology** | Self-loops (binding a container to itself), mismatched field names, or missing reverse bindings are not detected. The cycle breaker prevents infinite loops at runtime, but a half-wired topology produces silent one-way-only sync. | Wire both directions explicitly when bidirectional sync is needed (as `DataFactory.setupBinding` does). |
+| **No-capture constraint** | `DataBinder.bind` accepts an arbitrary `FieldChangeCallback`. If the callback captures the receiver (e.g. an instance method reference `receiver::onFieldChange` or a lambda closing over `receiver`), the `WeakReference` in `WeakFieldChangeCallback` becomes useless — the receiver can never be garbage collected, causing a memory leak. | Use a static method reference (like `BaseDataContainer::onFieldChange`) that receives the receiver as a parameter, never via capture. See [Weak References](#weak-references-letting-the-receiver-be-collected) in the Developer & Maintainer Guide. |
+
+> [!IMPORTANT]
+> If you only need a standard master/slave binding, use `DataFactory.createFrom`. Manual binding is an escape hatch, not the default path.
 
 ## Developer & Maintainer Guide
 
@@ -231,11 +273,11 @@ for each writable field in slave's schema:  master.bindTo(slave, field)   // sla
 | `READ_ONLY` | yes | no | One-way: slave mirrors master, user can't write |
 | `READ_WRITE` | yes | yes | Bidirectional sync |
 
-Because `READ_WRITE` fields appear in *both* the readable and writable lists, they get two bindings — one in each direction. `bindTo` is package-private so that all binding setup flows through `DataFactory.createFrom`; external code cannot (and should not) wire bindings manually.
+Because `READ_WRITE` fields appear in *both* the readable and writable lists, they get two bindings — one in each direction. `bindTo` and `DataBinder.bind` are public for advanced use cases that `DataFactory.createFrom` cannot express. See [Advanced: Manual Binding](#advanced-manual-binding) for the risks and contract.
 
 ### The `DataBinder` Dual Index
 
-[`DataBinder`](src/org/adrian/databinding/DataBinder.java) is a static singleton holding two indices over the same set of bindings:
+[`DataBinder`](src/org/adrian/databinding/DataBinder.java) is a named multiton; each instance holds two indices over its set of bindings:
 
 - **Forward index** (`transmitterBindings`): `transmitter UUID → field name → list<WeakFieldChangeCallback>`. Used at notification time — when a transmitter's field changes, look up the callbacks to invoke.
 - **Reverse index** (`receiverBindings`): `receiver UUID → list<BindingReference>`. Used at cleanup time — when a receiver is GC'd, quickly find every binding that points *at* it without scanning the forward index.
@@ -253,7 +295,7 @@ The `UpdateChain` serves two roles simultaneously:
 
 #### The Problem: DataBinder Outlives the Data Objects
 
-[`DataBinder`](src/org/adrian/databinding/DataBinder.java) is a static singleton — it lives for the entire JVM lifetime. Every binding registers a `FieldChangeCallback` *strongly* in the forward index (`transmitter UUID → field → callback list`). If that callback held a strong reference to the receiver object, the receiver could never be garbage collected as long as `DataBinder` exists — even if the rest of the application has dropped all references to it. In a long-running application this would be a growing memory leak: every master/slave pair ever created would stay alive forever.
+[`DataBinder`](src/org/adrian/databinding/DataBinder.java) is a named multiton — each named instance lives until explicitly removed via `DataBinder.remove(name)`. Every binding registers a `FieldChangeCallback` *strongly* in the forward index (`transmitter UUID → field → callback list`). If that callback held a strong reference to the receiver object, the receiver could never be garbage collected as long as the `DataBinder` instance exists — even if the rest of the application has dropped all references to it. In a long-running application this would be a growing memory leak: every master/slave pair ever created would stay alive forever.
 
 The framework solves this with two Java reference types that let the GC reclaim objects while still allowing `DataBinder` to *detect* that they are gone and clean up afterward.
 
@@ -264,7 +306,7 @@ A `WeakReference` holds a reference to an object *without preventing* the GC fro
 [`WeakFieldChangeCallback`](src/org/adrian/databinding/WeakFieldChangeCallback.java) wraps each callback with a `WeakReference` to the **receiver** (the owner that should be notified). This breaks the strong link:
 
 ```
-DataBinder (static, immortal)
+DataBinder (named multiton instance)
   └─ strong → FieldChangeCallback (the lambda / method ref)
                 └─ weak → receiver object   ← can be GC'd when nothing else holds it
 ```
@@ -317,14 +359,15 @@ Layer 1 is **lazy** — it only runs when a write happens, so it handles the com
 | Multi-field snapshot | [`MultiLockManager`](src/org/adrian/databinding/MultiLockManager.java) | Acquires in caller-given order, releases LIFO |
 | Binding registry | `ConcurrentHashMap` + `CopyOnWriteArrayList` | Lock-free reads, copy-on-write iteration |
 
-`MultiLockManager.lockAll` acquires locks in the order the caller passes them and releases in reverse order. Deadlock avoidance depends on callers using a consistent order — in practice this is the schema's field-definition order (deterministic). Note that `lockAll` swallows exceptions and returns an empty list on partial failure (marked `// TODO` in source), so a mid-acquisition failure currently proceeds without holding the earlier locks.
+`MultiLockManager.lockAll` acquires locks in the order the caller passes them and releases in reverse order. Deadlock avoidance depends on callers using a consistent order — in practice this is the schema's field-definition order (deterministic). If acquisition of any lock fails, `lockAll` releases all locks acquired so far and throws a `LockAcquisitionException`. `unlockAll` logs (via `System.Logger`) and continues past individual unlock failures so that one bad unlock doesn't prevent releasing the remaining locks.
 
 ### Key Invariants for Maintainers
 
-- `DataFactory.createFrom` is the **only** entry point that sets up bindings. Don't wire bindings manually.
+- `DataFactory.createFrom` is the **recommended** entry point that sets up bindings with snapshot locking and validation. `bindTo` and `DataBinder.bind` are public for advanced use but bypass those guarantees — see [Advanced: Manual Binding](#advanced-manual-binding).
 - `initValues` bypasses timestamps and propagation — use it only during construction. Calling it after binding is established will create silent inconsistencies (value present, timestamp `0`, no propagation).
 - The public setter enforces `isWritable()`; the private setter (propagation path) does not. Don't "fix" this asymmetry — it's how `READ_ONLY` fields receive master updates.
-- `DataBinderCleaner` runs on a virtual thread and blocks on `referenceQueue.remove()`. Tests that depend on cleanup (e.g. `DataBinderCleanupTest`) force GC and sleep, so they can be timing-sensitive.
+- `DataBinder` is a named multiton. New containers capture the thread-local active instance (`DataBinder.getActive()`) at construction into a `final` field; slaves inherit the master's instance. Use `DataBinder.setActive(name)` (returns an `AutoCloseable` scope) to scope a binding graph, or the `(schema, binder)` constructor for explicit injection.
+- `DataBinderCleaner` is a package-private, instance-based component owned by each `DataBinder`. Its daemon thread starts lazily when the `DataBinder` instance is first created (via `get`/`getActive`). Tests that depend on cleanup (e.g. `DataBinderCleanupTest`) force GC and sleep, so they can be timing-sensitive.
 - Field lookup in `DataSchema` is O(n). Fine for small schemas; revisit if schemas grow large.
 
 ## Example

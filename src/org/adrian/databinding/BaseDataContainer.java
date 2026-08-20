@@ -18,6 +18,7 @@ public abstract class BaseDataContainer implements IBindable {
 
     private final UUID id = UUID.randomUUID();
     private final DataSchema schema;
+    private final DataBinder binder;
 
     // Storage for field values, timestamps, and locks
     private final Map<String, AtomicReference<Object>> fieldValues = new ConcurrentHashMap<>();
@@ -25,26 +26,38 @@ public abstract class BaseDataContainer implements IBindable {
     private final Map<String, ReentrantReadWriteLock> fieldLocks = new ConcurrentHashMap<>();
 
     /**
-     * Constructor for 'master' data instances that don't inherit from other
-     * containers.
+     * Constructor for 'master' data instances that don't inherit from other containers. Captures the thread-local
+     * active {@link DataBinder} instance at construction time.
      *
      * @param schema the schema defining the fields and their access permissions
      */
     protected BaseDataContainer(final DataSchema schema) {
+        this(schema, DataBinder.getActive());
+    }
+
+    /**
+     * Constructor for 'master' data instances that don't inherit from other containers, using an explicit
+     * {@link DataBinder} instance.
+     *
+     * @param schema the schema defining the fields and their access permissions
+     * @param binder the {@link DataBinder} instance this container registers its bindings with
+     */
+    protected BaseDataContainer(final DataSchema schema, final DataBinder binder) {
         this.schema = schema;
+        this.binder = binder;
         initFields();
     }
 
     /**
      * Constructor that automatically copies field values from a master container.
-     * Used for creating 'slave' objects that inherit values from a master.
+     * Used for creating 'slave' objects that inherit values from a master. The slave inherits the master's
+     * {@link DataBinder} instance, ensuring the master and slave share one binding registry.
      *
      * @param schema the schema defining the fields and their access permissions
      * @param master the master container to copy initial values from
      */
     protected BaseDataContainer(final DataSchema schema, final BaseDataContainer master) {
-        this.schema = schema;
-        initFields();
+        this(schema, master.binder);
         copyValuesFromMaster(master);
     }
 
@@ -198,7 +211,7 @@ public abstract class BaseDataContainer implements IBindable {
         }
 
         if (update) {
-            DataBinder.update(this, fieldName, oldValue, newValue, chain);
+            this.binder.update(this, fieldName, oldValue, newValue, chain);
         }
     }
 
@@ -223,10 +236,29 @@ public abstract class BaseDataContainer implements IBindable {
     }
 
     /**
-     * Bind specific field to another bindable object
+     * Binds a specific field on another bindable object to this container, registering this container as the
+     * receiver of the transmitter's field-change notifications.
+     * <p>
+     * This method is public for advanced use cases where the caller needs a binding topology that
+     * {@link DataFactory#createFrom} cannot express. In normal usage, prefer
+     * {@link DataFactory#createFrom} — it copies field values from the master and sets up
+     * bidirectional bindings based on the slave's schema.
+     * <p>
+     * <strong>Risks of manual binding:</strong>
+     * <ul>
+     *   <li><b>Topology responsibility.</b> The caller is responsible for producing a valid binding
+     *       topology. Self-loops, mismatched field names, or missing reverse bindings are not
+     *       detected.</li>
+     *   <li><b>No-capture constraint.</b> The callback used internally is a static method reference
+     *       that does not capture the receiver. See {@link WeakFieldChangeCallback} for why this
+     *       matters.</li>
+     * </ul>
+     *
+     * @param bindable the transmitter (source) object whose field changes should notify this container
+     * @param fieldName the field name to bind
      */
-    void bindTo(final IBindable bindable, final String fieldName) {
-        DataBinder.bind(bindable, fieldName, this, BaseDataContainer::onFieldChange);
+    public void bindTo(final IBindable bindable, final String fieldName) {
+        this.binder.bind(bindable, fieldName, this, BaseDataContainer::onFieldChange);
     }
 
     /**

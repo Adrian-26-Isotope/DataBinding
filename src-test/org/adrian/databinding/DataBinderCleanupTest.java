@@ -12,10 +12,13 @@ import org.junit.jupiter.api.Test;
  */
 public class DataBinderCleanupTest {
 
+    private static final int MAX_GC_RETRIES = 20;
+
+    private static final long GC_RETRY_SLEEP_MS = 100L;
+
     @BeforeEach
     void setUp() {
-        DataBinder.reset();
-        DataBinderCleaner.reset();
+        TestDataBinder.reset();
     }
 
     @Test
@@ -25,16 +28,20 @@ public class DataBinderCleanupTest {
         // Create some test containers that will be garbage collected
         createAndBindContainers();
 
-        // Force garbage collection
-        System.out.println("Forcing garbage collection...");
-        System.gc();
-        System.gc(); // Call twice to increase likelihood of collection
+        // Deterministically drain phantom references: give GC multiple bounded
+        // chances and synchronously process any enqueued refs instead of relying
+        // on the daemon thread's unbounded latency.
+        for (int i = 0; i < MAX_GC_RETRIES; i++) {
+            System.gc();
+            TestDataBinder.drainOnce();
+            if (DataBinder.getMonitoredContainerCount() == 0) {
+                break;
+            }
+            Thread.sleep(GC_RETRY_SLEEP_MS);
+        }
 
-        // Give the cleanup thread time to process
-        Thread.sleep(1000);
-
-        System.out.println("Monitored containers: " + DataBinderCleaner.getMonitoredContainerCount());
-        assertEquals(0, DataBinderCleaner.getMonitoredContainerCount());
+        System.out.println("Monitored containers: " + DataBinder.getMonitoredContainerCount());
+        assertEquals(0, DataBinder.getMonitoredContainerCount());
         assertEquals(0, DataBinder.getTransmitterCount());
         assertEquals(0, DataBinder.getReceiverCount());
         System.out.println("Test completed. Check that containers were cleaned up.");
@@ -46,12 +53,7 @@ public class DataBinderCleanupTest {
 
         // Create containers (these will go out of scope after this method)
         TestContainer container1 = new TestContainer(schema);
-        TestContainer container2 = new TestContainer(schema);
-
-        // Create some bindings
-        container1.bindTo(container2, "testField");
-        container2.bindTo(container1, "testField");
-
+        TestContainer container2 = DataFactory.createFrom(container1, schema, TestContainer::new);
         System.out.println("Created containers with IDs: " + container1.getID() + ", " + container2.getID());
 
         container1.setTestField("1st");
@@ -59,10 +61,10 @@ public class DataBinderCleanupTest {
         container2.setTestField("2nd");
         assertEquals("2nd", container1.getTestField());
 
-        System.out.println("Initial monitored containers: " + DataBinderCleaner.getMonitoredContainerCount());
+        System.out.println("Initial monitored containers: " + DataBinder.getMonitoredContainerCount());
         assertEquals(2, DataBinder.getReceiverCount());
         assertEquals(2, DataBinder.getTransmitterCount());
-        assertEquals(4, DataBinderCleaner.getMonitoredContainerCount()); // 2 for transmitter, 2 for receiver
+        assertEquals(4, DataBinder.getMonitoredContainerCount()); // 2 for transmitter, 2 for receiver
     }
 
 
@@ -73,6 +75,10 @@ public class DataBinderCleanupTest {
 
         public TestContainer(final DataSchema schema) {
             super(schema);
+        }
+
+        public TestContainer(final DataSchema schema, final BaseDataContainer master) {
+            super(schema, master);
         }
 
         public void setTestField(final Object value) {

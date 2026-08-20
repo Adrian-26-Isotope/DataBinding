@@ -13,9 +13,12 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public class MultiLockManager {
 
+    private static final System.Logger LOGGER = System.getLogger(MultiLockManager.class.getName());
+
     /**
      * Enumeration defining the types of locks that can be acquired.
      */
+    @SuppressWarnings("javadoc")
     public enum LockType {
                           READ,
                           WRITE;
@@ -33,7 +36,7 @@ public class MultiLockManager {
      * @return list of acquired locks in the same order (for unlocking); empty
      *         when {@code locks} is {@code null} or empty
      * @throws LockAcquisitionException if acquisition of any lock fails; any
-     *         locks acquired before the failure are released first
+     *             locks acquired before the failure are released first
      */
     public static List<Lock> lockAll(final LockType type, final ReentrantReadWriteLock... locks) {
         if ((locks == null) || (locks.length == 0)) {
@@ -86,8 +89,7 @@ public class MultiLockManager {
                     lock.unlock();
                 }
                 catch (Exception e) {
-                    // TODO exception handling
-                    e.printStackTrace();
+                    LOGGER.log(System.Logger.Level.WARNING, "Failed to unlock lock at index " + i, e);
                 }
             }
         }
