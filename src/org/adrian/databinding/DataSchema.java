@@ -1,7 +1,11 @@
 package org.adrian.databinding;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Defines the schema for a data container with field definitions.
@@ -10,7 +14,7 @@ import java.util.List;
  */
 public class DataSchema {
 
-    private final List<FieldDefinition> fieldDefinitions;
+    private final Map<String, FieldDefinition> fieldDefinitionMap = new HashMap<>();
 
     /**
      * Creates a new DataSchema with the specified field definitions.
@@ -18,7 +22,7 @@ public class DataSchema {
      * @param fieldDefinitions variable number of field definitions
      */
     public DataSchema(final FieldDefinition... fieldDefinitions) {
-        this.fieldDefinitions = Arrays.asList(fieldDefinitions);
+        this(Arrays.asList(fieldDefinitions));
     }
 
     /**
@@ -27,16 +31,22 @@ public class DataSchema {
      * @param fieldDefinitions list of field definitions
      */
     public DataSchema(final List<FieldDefinition> fieldDefinitions) {
-        this.fieldDefinitions = fieldDefinitions;
+        for (FieldDefinition fd : fieldDefinitions) {
+            String fieldName = fd.getFieldName();
+            if (this.fieldDefinitionMap.containsKey(fieldName)) {
+                throw new IllegalArgumentException("Duplicate field name: " + fieldName);
+            }
+            this.fieldDefinitionMap.put(fieldName, fd);
+        }
     }
 
     /**
      * Gets all field definitions in this schema.
      *
-     * @return list of all field definitions
+     * @return unmodifiable list of all field definitions
      */
     public List<FieldDefinition> getFieldDefinitions() {
-        return this.fieldDefinitions;
+        return Collections.unmodifiableList(new ArrayList<>(this.fieldDefinitionMap.values()));
     }
 
     /**
@@ -46,8 +56,7 @@ public class DataSchema {
      * @return the field definition, or null if not found
      */
     public FieldDefinition getFieldDefinition(final String fieldName) {
-        return this.fieldDefinitions.stream().filter(fd -> fd.getFieldName().equals(fieldName)).findFirst()
-                .orElse(null);
+        return this.fieldDefinitionMap.get(fieldName);
     }
 
     /**
@@ -56,7 +65,7 @@ public class DataSchema {
      * @return list of readable field definitions
      */
     public List<FieldDefinition> getReadableFields() {
-        return this.fieldDefinitions.stream().filter(FieldDefinition::isReadable).toList();
+        return this.fieldDefinitionMap.values().stream().filter(FieldDefinition::isReadable).toList();
     }
 
     /**
@@ -65,6 +74,6 @@ public class DataSchema {
      * @return list of writable field definitions
      */
     public List<FieldDefinition> getWritableFields() {
-        return this.fieldDefinitions.stream().filter(FieldDefinition::isWritable).toList();
+        return this.fieldDefinitionMap.values().stream().filter(FieldDefinition::isWritable).toList();
     }
 }

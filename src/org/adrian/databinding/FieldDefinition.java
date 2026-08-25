@@ -9,9 +9,10 @@ public class FieldDefinition {
     /**
      * Enumeration defining the access modes for fields.
      */
+    @SuppressWarnings("javadoc")
     public enum AccessMode {
-        READ_ONLY,
-        READ_WRITE
+                            READ_ONLY,
+                            READ_WRITE
     }
 
     private final String fieldName;
@@ -20,7 +21,7 @@ public class FieldDefinition {
     /**
      * Creates a new field definition with the specified name and access mode.
      *
-     * @param fieldName  the name of the field
+     * @param fieldName the name of the field
      * @param accessMode the access permissions for the field
      */
     public FieldDefinition(final String fieldName, final AccessMode accessMode) {

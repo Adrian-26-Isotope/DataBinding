@@ -26,8 +26,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public class DataBinder {
 
-    private static final String DEFAULT_NAME = "default";
-    private static final ThreadLocal<String> activeName = ThreadLocal.withInitial(() -> DEFAULT_NAME);
+    /**
+     * this is the name of the default data binder instance.
+     */
+    public static final String DEFAULT_INSTANCE = "default";
+    private static final ThreadLocal<String> activeName = ThreadLocal.withInitial(() -> DEFAULT_INSTANCE);
     private static final ConcurrentMap<String, DataBinder> instances = new ConcurrentHashMap<>();
 
     // main data binding cache
@@ -138,6 +141,19 @@ public class DataBinder {
         this.transmitterBindings.clear();
         this.receiverBindings.clear();
         this.cleaner.shutdown();
+    }
+
+    /**
+     * Fail-stop this instance without re-entering the cleaner. Invoked by {@link DataBinderCleaner} when its daemon
+     * loop is dying (unrecoverable {@link Error} or restart cap exceeded). Marks the binder inactive and clears all
+     * binding indices so subsequent {@link #bind}/{@link #update} calls fail fast. Does <em>not</em> call
+     * {@link DataBinderCleaner#shutdown()} — the cleaner is the caller and is already exiting.
+     */
+    void failStop() {
+        this.active = false;
+        this.transmitterBindings.clear();
+        this.receiverBindings.clear();
+        instances.remove(this.name, this);
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

@@ -10,19 +10,19 @@ public class DataBindingDemo {
     public static void main(final String[] args) {
         // Create master data
         MasterData master = new MasterData("initial", "initial", "initial");
-        master.printAllFields();
+        System.out.println(master);
 
         // Create slave data with full read-write access
         SlaveData1 slave1 = master.createSlaveData1();
-        slave1.printAllFields();
+        System.out.println(slave1);
 
         // Create slave data with read-only access
         SlaveData2 slave2 = master.createSlaveData2();
-        slave2.printAllFields();
+        System.out.println(slave2);
 
         // Create mapped data with different field names
         SlaveData3 slave3 = slave1.createSlaveData3();
-        slave3.printAllFields();
+        System.out.println(slave3);
 
 
         // Test bidirectional binding
@@ -56,10 +56,10 @@ public class DataBindingDemo {
 
 
         // print all fields
-        master.printAllFields();
-        slave1.printAllFields();
-        slave2.printAllFields();
-        slave3.printAllFields();
+        System.out.println(master);
+        System.out.println(slave1);
+        System.out.println(slave2);
+        System.out.println(slave3);
 
     }
 }

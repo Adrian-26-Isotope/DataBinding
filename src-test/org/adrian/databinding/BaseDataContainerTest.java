@@ -4,13 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 import org.adrian.databinding.demo.MasterData;
 import org.adrian.databinding.demo.SlaveData1;
 import org.adrian.databinding.demo.SlaveData2;
 import org.adrian.databinding.demo.SlaveData3;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 class BaseDataContainerTest {
 
@@ -25,6 +25,12 @@ class BaseDataContainerTest {
         this.slave1 = this.master.createSlaveData1();
         this.slave2 = this.master.createSlaveData2();
         this.slave3 = this.slave1.createSlaveData3();
+    }
+
+    @AfterAll
+    static void tearDown() {
+        // Reset the DataBinder after all tests to avoid interference with other tests
+        TestDataBinder.reset();
     }
 
     @Test

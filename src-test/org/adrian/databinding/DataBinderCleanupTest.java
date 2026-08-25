@@ -2,7 +2,7 @@ package org.adrian.databinding;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -16,8 +16,8 @@ public class DataBinderCleanupTest {
 
     private static final long GC_RETRY_SLEEP_MS = 100L;
 
-    @BeforeEach
-    void setUp() {
+    @AfterAll
+    static void tearDown() {
         TestDataBinder.reset();
     }
 

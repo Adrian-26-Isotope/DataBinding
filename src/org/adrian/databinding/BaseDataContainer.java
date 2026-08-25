@@ -1,6 +1,5 @@
 package org.adrian.databinding;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -65,20 +64,24 @@ public abstract class BaseDataContainer implements IBindable {
      * Copy field values from master container for fields that exist in both schemas
      */
     private void copyValuesFromMaster(final BaseDataContainer master) {
-        Map<String, Object> initialValues = new HashMap<>();
         for (FieldDefinition fieldDef : this.schema.getFieldDefinitions()) {
             String fieldName = fieldDef.getFieldName();
             if (fieldDef.isReadable()) {
                 try {
                     Object value = master.getFieldValue(fieldName);
-                    initialValues.put(fieldName, value);
+                    AtomicReference<Object> field = this.fieldValues.get(fieldName);
+                    AtomicLong timestamp = this.fieldTimestamps.get(fieldName);
+                    AtomicLong masterTimestamp = master.fieldTimestamps.get(fieldName);
+                    if ((field != null) && (timestamp != null) && (masterTimestamp != null)) {
+                        field.set(value);
+                        timestamp.set(masterTimestamp.get());
+                    }
                 }
                 catch (IllegalArgumentException e) {
                     // Field doesn't exist in master or not readable, skip it
                 }
             }
         }
-        initValues(initialValues);
     }
 
     /**
@@ -104,7 +107,7 @@ public abstract class BaseDataContainer implements IBindable {
         for (FieldDefinition fieldDef : this.schema.getFieldDefinitions()) {
             String fieldName = fieldDef.getFieldName();
             this.fieldValues.put(fieldName, new AtomicReference<>());
-            this.fieldTimestamps.put(fieldName, new AtomicLong(0L));
+            this.fieldTimestamps.put(fieldName, new AtomicLong(Long.MIN_VALUE));
             this.fieldLocks.put(fieldName, new ReentrantReadWriteLock());
         }
     }
@@ -116,6 +119,10 @@ public abstract class BaseDataContainer implements IBindable {
      * @param initialValues map of field names to their initial values
      */
     protected void initValues(final Map<String, Object> initialValues) {
+        if ((initialValues == null) || initialValues.isEmpty()) {
+            return;
+        }
+
         for (Map.Entry<String, Object> entry : initialValues.entrySet()) {
             String fieldName = entry.getKey();
             Object value = entry.getValue();
@@ -216,22 +223,12 @@ public abstract class BaseDataContainer implements IBindable {
     }
 
     /**
-     * Get all locks for the readable fields (for safe multi-field operations).
-     *
-     * @return array of read-write locks for all readable fields
-     */
-    protected ReentrantReadWriteLock[] getReadableLocks() {
-        return this.schema.getReadableFields().stream().map(fielDef -> this.fieldLocks.get(fielDef.getFieldName()))
-                .toArray(ReentrantReadWriteLock[]::new);
-    }
-
-    /**
      * Get the lock for a specific field.
      *
      * @param fieldName the name of the field
      * @return the read-write lock for the specified field
      */
-    protected ReentrantReadWriteLock getFieldLock(final String fieldName) {
+    ReentrantReadWriteLock getFieldLock(final String fieldName) {
         return this.fieldLocks.get(fieldName);
     }
 
@@ -246,12 +243,12 @@ public abstract class BaseDataContainer implements IBindable {
      * <p>
      * <strong>Risks of manual binding:</strong>
      * <ul>
-     *   <li><b>Topology responsibility.</b> The caller is responsible for producing a valid binding
-     *       topology. Self-loops, mismatched field names, or missing reverse bindings are not
-     *       detected.</li>
-     *   <li><b>No-capture constraint.</b> The callback used internally is a static method reference
-     *       that does not capture the receiver. See {@link WeakFieldChangeCallback} for why this
-     *       matters.</li>
+     * <li><b>Topology responsibility.</b> The caller is responsible for producing a valid binding
+     * topology. Self-loops, mismatched field names, or missing reverse bindings are not
+     * detected.</li>
+     * <li><b>No-capture constraint.</b> The callback used internally is a static method reference
+     * that does not capture the receiver. See {@link WeakFieldChangeCallback} for why this
+     * matters.</li>
      * </ul>
      *
      * @param bindable the transmitter (source) object whose field changes should notify this container
@@ -284,32 +281,19 @@ public abstract class BaseDataContainer implements IBindable {
     }
 
     /**
-     * Print all fields and their values to the console for debugging purposes.
-     * Shows field names, values, and timestamps in a readable format.
+     * Gets the timestamp of the last update to the specified field.
+     *
+     * @param fieldName the name of the field
+     * @return the field's timestamp, or {@code 0L} if the field is not present
      */
-    public void printAllFields() {
-        System.out.println("=== Data Container: " + getClass().getSimpleName() + " (ID: " + getID() + ") ===");
+    long getFieldTimestamp(final String fieldName) {
+        final AtomicLong timestamp = this.fieldTimestamps.get(fieldName);
+        return timestamp != null ? timestamp.get() : 0L;
+    }
 
-        for (FieldDefinition fieldDef : this.schema.getFieldDefinitions()) {
-            String fieldName = fieldDef.getFieldName();
-
-            if (fieldDef.isReadable()) {
-                ReentrantReadWriteLock lock = this.fieldLocks.get(fieldName);
-                lock.readLock().lock();
-                try {
-                    Object value = this.fieldValues.get(fieldName).get();
-                    long timestamp = this.fieldTimestamps.get(fieldName).get();
-                    System.out.println("  " + fieldName + ": " + value + " (timestamp: " + timestamp + ")");
-                }
-                finally {
-                    lock.readLock().unlock();
-                }
-            }
-            else {
-                System.out.println("  " + fieldName + ": [not readable]");
-            }
-        }
-        System.out.println();
+    @Override
+    public String toString() {
+        return DataContainerPrinter.format(this);
     }
 
 }

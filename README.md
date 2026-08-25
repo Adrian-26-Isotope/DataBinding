@@ -52,7 +52,7 @@ public class MyMasterData extends BaseDataContainer {
     public MyMasterData(String name, int value) {
         super(SCHEMA);
 
-        // DONT do this - throws exception for read only fields
+        // DONT do this in constructor - throws exception for read only fields
         // setFieldValue(NAME_FIELD, name);
         // setFieldValue(VALUE_FIELD, value);
 
@@ -221,7 +221,7 @@ When a field is set, a single `UpdateChain` travels through the entire binding g
 ```
 user calls container.setFieldValue("field", value)          // public setter
   ├─ validates field isWritable()                           // READ_ONLY fields rejected here
-  ├─ new UpdateChain(timestamp = System.nanoTime())         // one timestamp per write
+  ├─ new UpdateChain(timestamp = monotonic counter)        // one timestamp per write
   ├─ chain.add(this.id)
   └─ setFieldValue("field", value, chain)                   // internal setter
        ├─ acquire field write lock
@@ -243,7 +243,7 @@ user calls container.setFieldValue("field", value)          // public setter
 
 Key takeaways for maintainers:
 
-- **One `UpdateChain` per external write.** Every external `setFieldValue` call creates a fresh chain with a single `nanoTime` timestamp. That timestamp is shared by *all* field updates that cascade from it, which is what lets the timestamp check reject re-entrant updates to the same field.
+- **One `UpdateChain` per external write.** Every external `setFieldValue` call creates a fresh chain with a single monotonic sequence counter. That timestamp is shared by *all* field updates that cascade from it, which is what lets the timestamp check reject re-entrant updates to the same field.
 - **The notification happens outside the lock.** `DataBinder.update()` is called *after* the write lock is released, so callbacks never execute while a field lock is held. This avoids re-entrancy deadlocks.
 - **`UpdateChain` is not thread-safe by design.** It uses a plain `HashSet` because each chain is propagated synchronously down a single call stack. It is never shared across threads.
 
@@ -257,7 +257,7 @@ There are two `setFieldValue` paths, and they enforce access control differently
 | `setFieldValue(String, Object, UpdateChain)` — private | **No** | Yes | Yes | Propagation / callbacks |
 | `initValues(Map)` — protected | No | No | **No** | Construction only |
 
-The private setter deliberately skips the `isWritable()` check so that a `READ_ONLY` field on a slave *can* be updated by propagation from the master — it just can't be set directly by user code. `initValues` is the third path: it writes `AtomicReference` values directly, sets no timestamps, and fires no callbacks. It exists solely for construction-time initialization (and for `copyValuesFromMaster`).
+The private setter deliberately skips the `isWritable()` check so that a `READ_ONLY` field on a slave *can* be updated by propagation from the master — it just can't be set directly by user code. `initValues` is the third path: it writes `AtomicReference` values directly, sets no timestamps, and fires no callbacks. It exists solely for construction-time initialization.
 
 ### Schema-Driven Asymmetric Binding
 
@@ -289,7 +289,7 @@ The inner `BindingReference` records `(transmitterId, transmitterFieldName, call
 The `UpdateChain` serves two roles simultaneously:
 
 1. **Cycle detection (UUID set).** Before applying an incoming update, `onFieldChange` checks `chain.contains(receiver.id)`. If the receiver is already in the chain, the update is silently dropped. This breaks A→B→A loops in cyclic topologies.
-2. **Last-writer-wins (timestamp).** The internal setter compares `chain.timestamp` against the field's stored timestamp. If `chain.timestamp <= field.timestamp`, the update is rejected. Within a single chain this means each field is written at most once. Across two independent external writes (two separate chains), the later `nanoTime` wins and the earlier one is dropped — deterministic last-writer-wins.
+2. **Last-writer-wins (timestamp).** The internal setter compares `chain.timestamp` against the field's stored timestamp. If `chain.timestamp <= field.timestamp`, the update is rejected. Within a single chain this means each field is written at most once. Across two independent external writes (two separate chains), the later sequence number wins and the earlier one is dropped — deterministic last-writer-wins.
 
 ### Memory Management Lifecycle
 
@@ -335,7 +335,7 @@ transmitterMap:  PhantomReference<IBindable> → UUID
 receiverMap:     PhantomReference<IBindable> → UUID
 ```
 
-[`DataBinderCleaner`](src/org/adrian/databinding/DataBinderCleaner.java) runs a virtual daemon thread that blocks on `referenceQueue.remove()`. When the GC collects an `IBindable` and enqueues its phantom reference, the thread wakes up, looks up the UUID from the side map, and calls `DataBinder.cleanupTransmitter()` or `DataBinder.cleanupReceiver()` to remove the corresponding entries from the indices. Because phantom refs are enqueued *after* finalization, this cleanup runs only when the object is truly unreachable — there is no risk of operating on a half-collected object.
+[`DataBinderCleaner`](src/org/adrian/databinding/DataBinderCleaner.java) runs a virtual daemon thread that polls `referenceQueue.remove(timeout)` (1 s). When the GC collects an `IBindable` and enqueues its phantom reference, the thread wakes up, looks up the UUID from the side map, and calls `DataBinder.cleanupTransmitter()` or `DataBinder.cleanupReceiver()` to remove the corresponding entries from the indices. Because phantom refs are enqueued *after* finalization, this cleanup runs only when the object is truly unreachable — there is no risk of operating on a half-collected object.
 
 After processing, `phantomRef.clear()` is called explicitly because — unlike weak/soft references — phantom references are **not** auto-cleared by the GC. Without `clear()`, the `PhantomReference` object would remain as a key in the side map indefinitely.
 
@@ -367,7 +367,7 @@ Layer 1 is **lazy** — it only runs when a write happens, so it handles the com
 - `initValues` bypasses timestamps and propagation — use it only during construction. Calling it after binding is established will create silent inconsistencies (value present, timestamp `0`, no propagation).
 - The public setter enforces `isWritable()`; the private setter (propagation path) does not. Don't "fix" this asymmetry — it's how `READ_ONLY` fields receive master updates.
 - `DataBinder` is a named multiton. New containers capture the thread-local active instance (`DataBinder.getActive()`) at construction into a `final` field; slaves inherit the master's instance. Use `DataBinder.setActive(name)` (returns an `AutoCloseable` scope) to scope a binding graph, or the `(schema, binder)` constructor for explicit injection.
-- `DataBinderCleaner` is a package-private, instance-based component owned by each `DataBinder`. Its daemon thread starts lazily when the `DataBinder` instance is first created (via `get`/`getActive`). Tests that depend on cleanup (e.g. `DataBinderCleanupTest`) force GC and sleep, so they can be timing-sensitive.
+- `DataBinderCleaner` is a package-private, instance-based component owned by each `DataBinder`. Its daemon thread starts lazily when the `DataBinder` instance is first created (via `get`/`getActive`). The loop polls a `ReferenceQueue` with a timeout so it can self-check a shutdown flag (no `Thread.interrupt()`). Any `Throwable` from the loop body triggers a capped restart (5 per 60 s sliding window, with backoff); if the cap is exceeded the owning `DataBinder` is fail-stopped (`bind`/`update` then throw `IllegalStateException`). Tests that depend on cleanup (e.g. `DataBinderCleanupTest`) force GC and sleep, so they can be timing-sensitive.
 - Field lookup in `DataSchema` is O(n). Fine for small schemas; revisit if schemas grow large.
 
 ## Example

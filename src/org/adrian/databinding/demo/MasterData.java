@@ -1,5 +1,8 @@
 package org.adrian.databinding.demo;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import org.adrian.databinding.BaseDataContainer;
 import org.adrian.databinding.DataFactory;
 import org.adrian.databinding.DataSchema;
@@ -18,9 +21,11 @@ public class MasterData extends BaseDataContainer {
     public MasterData(final String name, final String type, final String notes) {
         super(SCHEMA);
 
-        setFieldValue(NAME_FIELD, name);
-        setFieldValue(TYPE_FIELD, type);
-        setFieldValue(NOTES_FIELD, notes);
+        Map<String, Object> inital = new HashMap<>();
+        inital.put(NAME_FIELD, name);
+        inital.put(TYPE_FIELD, type);
+        inital.put(NOTES_FIELD, notes);
+        initValues(inital);
     }
 
     public String getName() {
