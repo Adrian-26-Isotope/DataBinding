@@ -12,9 +12,11 @@ public class SlaveData1 extends BaseDataContainer {
 
     public static final String ADDITIONAL_INFO_FIELD = "additionalInfo";
 
-    public static final DataSchema SCHEMA = new DataSchema(FieldDefinition.readWrite(MasterData.NAME_FIELD),
-            FieldDefinition.readWrite(MasterData.TYPE_FIELD), FieldDefinition.readWrite(MasterData.NOTES_FIELD),
-            FieldDefinition.readWrite(ADDITIONAL_INFO_FIELD));
+    public static final DataSchema SCHEMA = new DataSchema(
+            FieldDefinition.readWrite(MasterData.NAME_FIELD, String.class),
+            FieldDefinition.readWrite(MasterData.TYPE_FIELD, String.class),
+            FieldDefinition.readWrite(MasterData.NOTES_FIELD, String.class),
+            FieldDefinition.readWrite(ADDITIONAL_INFO_FIELD, String.class));
 
     public SlaveData1(final DataSchema schema, final BaseDataContainer master) {
         super(schema, master);
@@ -22,7 +24,7 @@ public class SlaveData1 extends BaseDataContainer {
     }
 
     public String getName() {
-        return getFieldValue(MasterData.NAME_FIELD);
+        return getFieldValue(MasterData.NAME_FIELD, String.class);
     }
 
     public void setName(final String name) {
@@ -30,7 +32,7 @@ public class SlaveData1 extends BaseDataContainer {
     }
 
     public String getType() {
-        return getFieldValue(MasterData.TYPE_FIELD);
+        return getFieldValue(MasterData.TYPE_FIELD, String.class);
     }
 
     public void setType(final String type) {
@@ -38,7 +40,7 @@ public class SlaveData1 extends BaseDataContainer {
     }
 
     public String getNotes() {
-        return getFieldValue(MasterData.NOTES_FIELD);
+        return getFieldValue(MasterData.NOTES_FIELD, String.class);
     }
 
     public void setNotes(final String notes) {
@@ -46,7 +48,7 @@ public class SlaveData1 extends BaseDataContainer {
     }
 
     public String getAdditionalInfo() {
-        return getFieldValue(ADDITIONAL_INFO_FIELD);
+        return getFieldValue(ADDITIONAL_INFO_FIELD, String.class);
     }
 
     public void setAdditionalInfo(final String additionalInfo) {

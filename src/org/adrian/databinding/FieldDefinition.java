@@ -17,16 +17,22 @@ public class FieldDefinition {
 
     private final String fieldName;
     private final AccessMode accessMode;
+    private final Class<?> type;
 
     /**
-     * Creates a new field definition with the specified name and access mode.
+     * Creates a new field definition with the specified name, access mode, and value type.
+     * The type is used for write-time validation in {@code setFieldValue} / {@code initValues}
+     * and for type-checked reads via {@code getFieldValue(name, type)}. Pass
+     * {@code Object.class} to accept any value type.
      *
      * @param fieldName the name of the field
      * @param accessMode the access permissions for the field
+     * @param type the expected runtime type of the field's value
      */
-    public FieldDefinition(final String fieldName, final AccessMode accessMode) {
+    public FieldDefinition(final String fieldName, final AccessMode accessMode, final Class<?> type) {
         this.fieldName = fieldName;
         this.accessMode = accessMode;
+        this.type = type;
     }
 
     /**
@@ -48,6 +54,15 @@ public class FieldDefinition {
     }
 
     /**
+     * Gets the expected runtime type of this field's value.
+     *
+     * @return the value type
+     */
+    public Class<?> getType() {
+        return this.type;
+    }
+
+    /**
      * Checks if this field can be read.
      *
      * @return true if the field is readable
@@ -66,22 +81,24 @@ public class FieldDefinition {
     }
 
     /**
-     * Factory method for creating a read-only field definition.
+     * Factory method for creating a read-only field definition with a concrete value type.
      *
      * @param fieldName the name of the field
+     * @param type the expected runtime type of the field's value
      * @return a read-only field definition
      */
-    public static FieldDefinition readOnly(final String fieldName) {
-        return new FieldDefinition(fieldName, AccessMode.READ_ONLY);
+    public static FieldDefinition readOnly(final String fieldName, final Class<?> type) {
+        return new FieldDefinition(fieldName, AccessMode.READ_ONLY, type);
     }
 
     /**
-     * Factory method for creating a read-write field definition.
+     * Factory method for creating a read-write field definition with a concrete value type.
      *
      * @param fieldName the name of the field
+     * @param type the expected runtime type of the field's value
      * @return a read-write field definition
      */
-    public static FieldDefinition readWrite(final String fieldName) {
-        return new FieldDefinition(fieldName, AccessMode.READ_WRITE);
+    public static FieldDefinition readWrite(final String fieldName, final Class<?> type) {
+        return new FieldDefinition(fieldName, AccessMode.READ_WRITE, type);
     }
 }

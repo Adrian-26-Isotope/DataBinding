@@ -49,7 +49,8 @@ public class DataBinderCleanupTest {
 
     private void createAndBindContainers() {
         // Create a simple schema for testing
-        DataSchema schema = new DataSchema(new FieldDefinition("testField", FieldDefinition.AccessMode.READ_WRITE));
+        DataSchema schema = new DataSchema(
+                FieldDefinition.readWrite("testField", Object.class));
 
         // Create containers (these will go out of scope after this method)
         TestContainer container1 = new TestContainer(schema);
@@ -86,7 +87,7 @@ public class DataBinderCleanupTest {
         }
 
         public Object getTestField() {
-            return getFieldValue("testField");
+            return getFieldValue("testField", Object.class);
         }
     }
 }

@@ -86,7 +86,7 @@ class BaseDataContainerTest {
     void testFieldAccessRestrictions() {
         // Test that accessing non-existent or non-readable fields throws exception
         assertThrows(IllegalArgumentException.class, () -> {
-            this.slave2.getFieldValue("nonExistentField");
+            this.slave2.getFieldValue("nonExistentField", Object.class);
         });
     }
 
@@ -124,7 +124,7 @@ class BaseDataContainerTest {
 
     @Test
     void testUnknownField() {
-        assertThrows(IllegalArgumentException.class, () -> this.master.getFieldValue("NO_FIELD"));
+        assertThrows(IllegalArgumentException.class, () -> this.master.getFieldValue("NO_FIELD", Object.class));
         assertThrows(IllegalArgumentException.class, () -> this.master.setFieldValue("NO_FIELD", "expect exception"));
     }
 

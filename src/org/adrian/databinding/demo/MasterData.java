@@ -15,8 +15,8 @@ public class MasterData extends BaseDataContainer {
     public static final String TYPE_FIELD = "type";
     public static final String NOTES_FIELD = "notes";
 
-    public static final DataSchema SCHEMA = new DataSchema(FieldDefinition.readWrite(NAME_FIELD),
-            FieldDefinition.readWrite(TYPE_FIELD), FieldDefinition.readWrite(NOTES_FIELD));
+    public static final DataSchema SCHEMA = new DataSchema(FieldDefinition.readWrite(NAME_FIELD, String.class),
+            FieldDefinition.readWrite(TYPE_FIELD, String.class), FieldDefinition.readWrite(NOTES_FIELD, String.class));
 
     public MasterData(final String name, final String type, final String notes) {
         super(SCHEMA);
@@ -29,7 +29,7 @@ public class MasterData extends BaseDataContainer {
     }
 
     public String getName() {
-        return getFieldValue(NAME_FIELD);
+        return getFieldValue(NAME_FIELD, String.class);
     }
 
     public void setName(final String name) {
@@ -37,7 +37,7 @@ public class MasterData extends BaseDataContainer {
     }
 
     public String getType() {
-        return getFieldValue(TYPE_FIELD);
+        return getFieldValue(TYPE_FIELD, String.class);
     }
 
     public void setType(final String type) {
@@ -45,7 +45,7 @@ public class MasterData extends BaseDataContainer {
     }
 
     public String getNotes() {
-        return getFieldValue(NOTES_FIELD);
+        return getFieldValue(NOTES_FIELD, String.class);
     }
 
     public void setNotes(final String notes) {

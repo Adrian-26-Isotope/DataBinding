@@ -1,6 +1,11 @@
 package org.adrian.databinding;
 
+import java.lang.reflect.Array;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -61,25 +66,35 @@ public abstract class BaseDataContainer implements IBindable {
     }
 
     /**
-     * Copy field values from master container for fields that exist in both schemas
+     * Copy field values from master container for fields that exist in both schemas.
+     * <p>
+     * Reads the master's raw stored references directly (not via
+     * {@link #getFieldValue}) so that the slave stores the same raw value the
+     * propagation path would deliver — {@code getFieldValue} wraps mutable
+     * values in unmodifiable views or defensive copies, which must not be
+     * stored as the field's backing value.
      */
     private void copyValuesFromMaster(final BaseDataContainer master) {
         for (FieldDefinition fieldDef : this.schema.getFieldDefinitions()) {
             String fieldName = fieldDef.getFieldName();
-            if (fieldDef.isReadable()) {
-                try {
-                    Object value = master.getFieldValue(fieldName);
-                    AtomicReference<Object> field = this.fieldValues.get(fieldName);
-                    AtomicLong timestamp = this.fieldTimestamps.get(fieldName);
-                    AtomicLong masterTimestamp = master.fieldTimestamps.get(fieldName);
-                    if ((field != null) && (timestamp != null) && (masterTimestamp != null)) {
-                        field.set(value);
-                        timestamp.set(masterTimestamp.get());
-                    }
-                }
-                catch (IllegalArgumentException e) {
-                    // Field doesn't exist in master or not readable, skip it
-                }
+            if (!fieldDef.isReadable()) {
+                continue;
+            }
+            FieldDefinition masterFieldDef = master.schema.getFieldDefinition(fieldName);
+            if ((masterFieldDef == null) || !masterFieldDef.isReadable()) {
+                continue;
+            }
+            AtomicReference<Object> masterField = master.fieldValues.get(fieldName);
+            if (masterField == null) {
+                continue;
+            }
+            Object value = masterField.get();
+            AtomicReference<Object> field = this.fieldValues.get(fieldName);
+            AtomicLong timestamp = this.fieldTimestamps.get(fieldName);
+            AtomicLong masterTimestamp = master.fieldTimestamps.get(fieldName);
+            if ((field != null) && (timestamp != null) && (masterTimestamp != null)) {
+                field.set(value);
+                timestamp.set(masterTimestamp.get());
             }
         }
     }
@@ -127,6 +142,11 @@ public abstract class BaseDataContainer implements IBindable {
             String fieldName = entry.getKey();
             Object value = entry.getValue();
 
+            FieldDefinition fieldDef = this.schema.getFieldDefinition(fieldName);
+            if (fieldDef != null) {
+                validateFieldType(fieldDef, value);
+            }
+
             AtomicReference<Object> field = this.fieldValues.get(fieldName);
             if (field != null) {
                 field.set(value);
@@ -135,16 +155,47 @@ public abstract class BaseDataContainer implements IBindable {
     }
 
     /**
-     * Generic getter for any field defined in the schema.
+     * Type-checked getter for a field defined in the schema. Validates that the stored
+     * value is assignable to the requested type before returning it.
+     * <p>
+     * <strong>Propagation contract:</strong> {@code setFieldValue} is the
+     * <em>only</em> path that triggers binding propagation (creates an
+     * {@link UpdateChain}, fires callbacks, updates timestamps). In-place
+     * mutation of a value returned by this method bypasses the binding
+     * contract entirely — no callbacks fire, no timestamps are updated, and
+     * custom receivers are silently skipped. Always use {@code setFieldValue}
+     * with a new value to change a field; never mutate a returned value in
+     * place.
+     * <p>
+     * <strong>Mutable-value wrapping:</strong> to prevent in-place mutation,
+     * mutable values are wrapped before being returned:
+     * <ul>
+     *   <li>JDK {@link List}, {@link Set}, {@link Map}, and other
+     *       {@link Collection} types are returned as unmodifiable views
+     *       (no copy cost, mutation blocked at the API boundary).</li>
+     *   <li>Arrays are returned as defensive copies.</li>
+     *   <li>Custom types implementing {@link Copyable} are returned as a copy
+     *       via {@code copy()}.</li>
+     *   <li>Immutable types (e.g. {@code String}, {@code Integer}, records) are
+     *       returned as-is.</li>
+     * </ul>
+     * Requesting a concrete collection type (e.g. {@code ArrayList.class})
+     * will fail with {@link ClassCastException} because the returned value is
+     * an unmodifiable view; request the interface type ({@code List.class},
+     * {@code Set.class}, {@code Map.class}) instead.
      *
      * @param <T> the expected type of the field value
      * @param fieldName the name of the field to retrieve
-     * @return the current value of the field
-     * @throws IllegalArgumentException if the field is not readable or doesn't
-     *             exist
+     * @param type the {@link Class} object for type {@code T}; must not be {@code null}
+     * @return the current value of the field, cast to {@code T} (wrapped if mutable)
+     * @throws IllegalArgumentException if the field is not readable or doesn't exist,
+     *             or if {@code type} is {@code null}
+     * @throws ClassCastException if the stored value is not an instance of {@code T}
      */
-    @SuppressWarnings("unchecked")
-    protected <T> T getFieldValue(final String fieldName) {
+    protected <T> T getFieldValue(final String fieldName, final Class<T> type) {
+        if (type == null) {
+            throw new IllegalArgumentException("type must not be null");
+        }
         FieldDefinition fieldDef = this.schema.getFieldDefinition(fieldName);
         if (fieldDef == null) {
             throw new IllegalArgumentException("Field '" + fieldName + "' not present");
@@ -154,7 +205,78 @@ public abstract class BaseDataContainer implements IBindable {
         }
 
         AtomicReference<Object> fieldRef = this.fieldValues.get(fieldName);
-        return fieldRef != null ? (T) fieldRef.get() : null;
+        Object rawValue = fieldRef != null ? fieldRef.get() : null;
+        Object value = wrapIfMutable(rawValue);
+        if ((value != null) && !type.isInstance(value)) {
+            throw new ClassCastException("Field '" + fieldName + "' holds a " + value.getClass().getName() +
+                    ", cannot be cast to " + type.getName());
+        }
+        return type.cast(value);
+    }
+
+    /**
+     * Validates that the given value matches the field's declared type. Does nothing if
+     * {@code value} is {@code null} (null is always accepted) or if the field type is
+     * {@code Object.class}.
+     *
+     * @param fieldDef the field definition carrying the expected type
+     * @param value the value to validate
+     * @throws IllegalArgumentException if {@code value} is not {@code null} and not an
+     *             instance of the field's declared type
+     */
+    private static void validateFieldType(final FieldDefinition fieldDef, final Object value) {
+        if ((value != null) && !fieldDef.getType().isInstance(value)) {
+            throw new IllegalArgumentException("Field '" + fieldDef.getFieldName() + "' expects " +
+                    fieldDef.getType().getName() + " but got " + value.getClass().getName());
+        }
+    }
+
+    /**
+     * Wraps a raw field value to prevent in-place mutation by callers of
+     * {@link #getFieldValue}. The wrapping strategy depends on the value's type:
+     * <ol>
+     *   <li>{@link Copyable} — returns {@code copy()} (checked first so that a
+     *       custom type's explicit opt-in takes precedence over any collection
+     *       interface it may also implement).</li>
+     *   <li>{@link List} — unmodifiable view.</li>
+     *   <li>{@link Set} — unmodifiable view.</li>
+     *   <li>{@link Map} — unmodifiable view.</li>
+     *   <li>Other {@link Collection} — unmodifiable view.</li>
+     *   <li>Array — defensive copy (preserves component type).</li>
+     *   <li>Everything else (immutable types) — returned as-is.</li>
+     * </ol>
+     * Returns {@code null} if the input is {@code null}.
+     *
+     * @param value the raw stored value
+     * @return the wrapped value, or {@code null}
+     */
+    private static Object wrapIfMutable(final Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Copyable<?> copyable) {
+            return copyable.copy();
+        }
+        if (value instanceof List<?> list) {
+            return Collections.unmodifiableList(list);
+        }
+        if (value instanceof Set<?> set) {
+            return Collections.unmodifiableSet(set);
+        }
+        if (value instanceof Map<?, ?> map) {
+            return Collections.unmodifiableMap(map);
+        }
+        if (value instanceof Collection<?> collection) {
+            return Collections.unmodifiableCollection(collection);
+        }
+        if (value.getClass().isArray()) {
+            int length = Array.getLength(value);
+            Class<?> componentType = value.getClass().getComponentType();
+            Object copy = Array.newInstance(componentType, length);
+            System.arraycopy(value, 0, copy, 0, length);
+            return copy;
+        }
+        return value;
     }
 
     /**
@@ -172,6 +294,7 @@ public abstract class BaseDataContainer implements IBindable {
         if (!fieldDef.isWritable()) {
             throw new IllegalArgumentException("Field '" + fieldName + "' is not writable.");
         }
+        validateFieldType(fieldDef, value);
 
         UpdateChain chain = new UpdateChain();
         chain.add(getID());

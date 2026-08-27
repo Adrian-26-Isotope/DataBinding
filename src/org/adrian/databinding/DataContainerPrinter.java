@@ -31,7 +31,7 @@ public final class DataContainerPrinter {
                 final ReentrantReadWriteLock lock = container.getFieldLock(fieldName);
                 lock.readLock().lock();
                 try {
-                    final Object value = container.getFieldValue(fieldName);
+                    final Object value = container.getFieldValue(fieldName, Object.class);
                     final long timestamp = container.getFieldTimestamp(fieldName);
                     sb.append("  ").append(fieldName).append(": ").append(value).append(" (timestamp: ")
                             .append(timestamp).append(")\n");

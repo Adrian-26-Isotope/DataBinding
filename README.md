@@ -45,8 +45,8 @@ public class MyMasterData extends BaseDataContainer {
     public static final String VALUE_FIELD = "value";
 
     public static final DataSchema SCHEMA = new DataSchema(
-        FieldDefinition.readWrite(NAME_FIELD),
-        FieldDefinition.readWrite(VALUE_FIELD)
+        FieldDefinition.readWrite(NAME_FIELD, String.class),
+        FieldDefinition.readWrite(VALUE_FIELD, Integer.class)
     );
 
     public MyMasterData(String name, int value) {
@@ -63,10 +63,10 @@ public class MyMasterData extends BaseDataContainer {
         initValues(initialValues);
     }
 
-    public String getName() { return getFieldValue(NAME_FIELD); }
+    public String getName() { return getFieldValue(NAME_FIELD, String.class); }
     public void setName(String name) { setFieldValue(NAME_FIELD, name); }
 
-    public Integer getValue() { return getFieldValue(VALUE_FIELD); }
+    public Integer getValue() { return getFieldValue(VALUE_FIELD, Integer.class); }
     public void setValue(Integer value) { setFieldValue(VALUE_FIELD, value); }
 }
 ```
@@ -76,16 +76,16 @@ public class MyMasterData extends BaseDataContainer {
 ```java
 public class ReadOnlySlaveData extends BaseDataContainer {
     public static final DataSchema SCHEMA = new DataSchema(
-        FieldDefinition.readOnly(MyMasterData.NAME_FIELD),
-        FieldDefinition.readOnly(MyMasterData.VALUE_FIELD)
+        FieldDefinition.readOnly(MyMasterData.NAME_FIELD, String.class),
+        FieldDefinition.readOnly(MyMasterData.VALUE_FIELD, Integer.class)
     );
 
     public ReadOnlySlaveData(DataSchema schema, BaseDataContainer master) {
         super(schema, master);
     }
 
-    public String getName() { return getFieldValue(MyMasterData.NAME_FIELD); }
-    public Integer getValue() { return getFieldValue(MyMasterData.VALUE_FIELD); }
+    public String getName() { return getFieldValue(MyMasterData.NAME_FIELD, String.class); }
+    public Integer getValue() { return getFieldValue(MyMasterData.VALUE_FIELD, Integer.class); }
     // No setters - read-only access
 }
 ```
@@ -191,6 +191,32 @@ When you bind manually, you are responsible for both. The risks:
 
 > [!IMPORTANT]
 > If you only need a standard master/slave binding, use `DataFactory.createFrom`. Manual binding is an escape hatch, not the default path.
+
+### Mutable Values and Propagation
+
+The binding contract guarantees that changes propagate to bound peers **only** through `setFieldValue`. That method creates an `UpdateChain`, fires registered callbacks, and updates timestamps. In-place mutation of a value returned by `getFieldValue` bypasses all of this — no callbacks fire, no timestamps change, and custom receivers are silently skipped.
+
+To prevent this, `getFieldValue` wraps mutable values before returning them:
+
+| Value type | Wrapping strategy | Cost |
+|---|---|---|
+| `List`, `Set`, `Map`, other `Collection` | Unmodifiable view | None (no copy) |
+| Array | Defensive copy | One allocation |
+| `Copyable<T>` (custom opt-in) | `copy()` | One allocation per call |
+| Immutable types (`String`, `Integer`, records, …) | Returned as-is | None |
+
+**Custom mutable types:** implement [`Copyable<T>`](src/org/adrian/databinding/Copyable.java) so that `getFieldValue` returns a defensive copy. `copy()` is called on every read, so it should be cheap. The copy is shallow by convention; if the object holds nested mutable references, deep-copy them in `copy()`.
+
+> [!IMPORTANT]
+> **Prefer immutable types (e.g. Java records) for field values.** `Copyable` is an escape hatch for when mutability is unavoidable. A custom mutable type that does *not* implement `Copyable` will be returned as a live reference — in-place mutation bypasses propagation and, for read-only slaves, breaks access control.
+
+| Scenario | What happens | Mitigation |
+|---|---|---|
+| JDK collection/array field | `getFieldValue` returns an unmodifiable view / defensive copy — mutation blocked | Automatic |
+| Custom type implementing `Copyable` | `getFieldValue` returns `copy()` — mutation of the returned object doesn't affect the stored value | Implement `copy()` correctly |
+| Custom mutable type **not** implementing `Copyable` | `getFieldValue` returns the **live reference** — in-place mutation bypasses propagation and access control | **Risk!** Make the type immutable, or implement `Copyable` |
+
+Requesting a concrete collection type (e.g. `ArrayList.class`) will fail with `ClassCastException` because the returned value is an unmodifiable view. Request the interface type (`List.class`, `Set.class`, `Map.class`) instead.
 
 ## Developer & Maintainer Guide
 
@@ -365,6 +391,7 @@ Layer 1 is **lazy** — it only runs when a write happens, so it handles the com
 
 - `DataFactory.createFrom` is the **recommended** entry point that sets up bindings with snapshot locking and validation. `bindTo` and `DataBinder.bind` are public for advanced use but bypass those guarantees — see [Advanced: Manual Binding](#advanced-manual-binding).
 - `initValues` bypasses timestamps and propagation — use it only during construction. Calling it after binding is established will create silent inconsistencies (value present, timestamp `0`, no propagation).
+- `getFieldValue` wraps mutable values (unmodifiable views for collections, defensive copies for arrays and `Copyable` types) to prevent in-place mutation from bypassing the propagation contract. Always use `setFieldValue` with a new value to change a field. Prefer immutable field types; use `Copyable<T>` only when mutability is unavoidable.
 - The public setter enforces `isWritable()`; the private setter (propagation path) does not. Don't "fix" this asymmetry — it's how `READ_ONLY` fields receive master updates.
 - `DataBinder` is a named multiton. New containers capture the thread-local active instance (`DataBinder.getActive()`) at construction into a `final` field; slaves inherit the master's instance. Use `DataBinder.setActive(name)` (returns an `AutoCloseable` scope) to scope a binding graph, or the `(schema, binder)` constructor for explicit injection.
 - `DataBinderCleaner` is a package-private, instance-based component owned by each `DataBinder`. Its daemon thread starts lazily when the `DataBinder` instance is first created (via `get`/`getActive`). The loop polls a `ReferenceQueue` with a timeout so it can self-check a shutdown flag (no `Thread.interrupt()`). Any `Throwable` from the loop body triggers a capped restart (5 per 60 s sliding window, with backoff); if the cap is exceeded the owning `DataBinder` is fail-stopped (`bind`/`update` then throw `IllegalStateException`). Tests that depend on cleanup (e.g. `DataBinderCleanupTest`) force GC and sleep, so they can be timing-sensitive.
