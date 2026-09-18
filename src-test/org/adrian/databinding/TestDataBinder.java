@@ -54,8 +54,8 @@ final class TestDataBinder {
     private TestDataBinder() {}
 
     /**
-     * Clears all binding registrations and phantom-reference tracking on the active {@link DataBinder} instance.
-     * Intended for test setup/teardown only.
+     * Clears all binding registrations, phantom-reference tracking, and any already-enqueued phantom references on the
+     * active {@link DataBinder} instance. Intended for test setup/teardown only.
      */
     @SuppressWarnings("unchecked")
     static void reset() {
@@ -75,6 +75,11 @@ final class TestDataBinder {
             ConcurrentMap<Object, Object> receiverMap =
                     (ConcurrentMap<Object, Object>) CLEANER_RECEIVER_MAP.get(cleaner);
             receiverMap.clear();
+
+            ReferenceQueue<IBindable> referenceQueue = (ReferenceQueue<IBindable>) CLEANER_REFERENCE_QUEUE.get(cleaner);
+            while (referenceQueue.poll() != null) {
+                // discard already-enqueued phantom refs; maps are cleared so processing would be a no-op
+            }
         }
         catch (IllegalAccessException e) {
             throw new IllegalStateException("Failed to reset DataBinder", e);

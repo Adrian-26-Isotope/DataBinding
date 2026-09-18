@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class UpdateChain {
 
-    private static final AtomicLong TIMESTAMP_COUNTER = new AtomicLong();
+    private static final AtomicLong TIMESTAMP_COUNTER = new AtomicLong(Long.MIN_VALUE);
 
     private final Set<UUID> updateChain = new HashSet<>();
     private final long timestamp = TIMESTAMP_COUNTER.incrementAndGet();
@@ -46,32 +46,6 @@ public class UpdateChain {
      */
     public boolean add(final UUID obj) {
         return this.updateChain.add(obj);
-    }
-
-    /**
-     * Removes an object from the current update chain.
-     *
-     * @param obj the object UUID to remove
-     * @return true if the object was removed successfully
-     */
-    public boolean remove(final UUID obj) {
-        return this.updateChain.remove(obj);
-    }
-
-    /**
-     * Clears the entire update chain for the current thread.
-     */
-    public void clear() {
-        this.updateChain.clear();
-    }
-
-    /**
-     * Gets the current chain size (useful for debugging).
-     *
-     * @return the number of objects in the current update chain
-     */
-    public int size() {
-        return this.updateChain.size();
     }
 
 }

@@ -1,5 +1,7 @@
 package org.adrian.databinding;
 
+import java.util.Objects;
+
 /**
  * Defines a field with its access permissions and provides factory methods
  * for creating common field access patterns.
@@ -30,7 +32,7 @@ public class FieldDefinition {
      * @param type the expected runtime type of the field's value
      */
     public FieldDefinition(final String fieldName, final AccessMode accessMode, final Class<?> type) {
-        this.fieldName = fieldName;
+        this.fieldName = Objects.requireNonNull(fieldName, "fieldName");
         this.accessMode = accessMode;
         this.type = type;
     }

@@ -2,6 +2,8 @@ package org.adrian.databinding;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.util.HashMap;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -49,13 +51,12 @@ public class DataBinderCleanupTest {
 
     private void createAndBindContainers() {
         // Create a simple schema for testing
-        DataSchema schema = new DataSchema(
-                FieldDefinition.readWrite("testField", Object.class));
+        DataSchema schema = new DataSchema(FieldDefinition.readWrite("testField", Object.class));
 
         // Create containers (these will go out of scope after this method)
         TestContainer container1 = new TestContainer(schema);
-        TestContainer container2 = DataFactory.createFrom(container1, schema, TestContainer::new);
-        System.out.println("Created containers with IDs: " + container1.getID() + ", " + container2.getID());
+        TestContainer container2 = DataFactory.createFrom(schema, container1, TestContainer::new);
+        System.out.println("Created containers with IDs: " + container1.getId() + ", " + container2.getId());
 
         container1.setTestField("1st");
         assertEquals("1st", container2.getTestField());
@@ -70,16 +71,16 @@ public class DataBinderCleanupTest {
 
 
     /**
-     * Simple test implementation of BaseDataContainer
+     * Simple test implementation of BasicDataContainer.
      */
-    private static class TestContainer extends BaseDataContainer {
+    private static class TestContainer extends BasicDataContainer {
 
         public TestContainer(final DataSchema schema) {
-            super(schema);
+            super(schema, DataBinder.getActive(), new HashMap<>());
         }
 
-        public TestContainer(final DataSchema schema, final BaseDataContainer master) {
-            super(schema, master);
+        public TestContainer(final DataSchema schema, final BasicDataContainer master) {
+            super(schema, master.getBinder(), new HashMap<>());
         }
 
         public void setTestField(final Object value) {

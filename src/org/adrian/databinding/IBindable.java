@@ -13,5 +13,5 @@ public interface IBindable {
      *
      * @return the unique UUID for this object
      */
-    UUID getID();
+    UUID getId();
 }

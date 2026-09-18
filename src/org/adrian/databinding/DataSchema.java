@@ -3,6 +3,7 @@ package org.adrian.databinding;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,7 +66,8 @@ public class DataSchema {
      * @return list of readable field definitions
      */
     public List<FieldDefinition> getReadableFields() {
-        return this.fieldDefinitionMap.values().stream().filter(FieldDefinition::isReadable).toList();
+        return this.fieldDefinitionMap.values().stream().filter(FieldDefinition::isReadable)
+                .sorted(Comparator.comparing(FieldDefinition::getFieldName)).toList();
     }
 
     /**
@@ -74,6 +76,7 @@ public class DataSchema {
      * @return list of writable field definitions
      */
     public List<FieldDefinition> getWritableFields() {
-        return this.fieldDefinitionMap.values().stream().filter(FieldDefinition::isWritable).toList();
+        return this.fieldDefinitionMap.values().stream().filter(FieldDefinition::isWritable)
+                .sorted(Comparator.comparing(FieldDefinition::getFieldName)).toList();
     }
 }

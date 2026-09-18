@@ -1,10 +1,11 @@
 package org.adrian.databinding.demo;
 
-import org.adrian.databinding.BaseDataContainer;
+import org.adrian.databinding.BasicDataContainer;
+import org.adrian.databinding.BasicSlaveContainer;
 import org.adrian.databinding.DataSchema;
 import org.adrian.databinding.FieldDefinition;
 
-public class SlaveData3 extends BaseDataContainer {
+public class SlaveData3 extends BasicSlaveContainer {
 
     public static final DataSchema SCHEMA = new DataSchema(
             FieldDefinition.readOnly(MasterData.NAME_FIELD, String.class),
@@ -12,7 +13,7 @@ public class SlaveData3 extends BaseDataContainer {
             FieldDefinition.readOnly(MasterData.TYPE_FIELD, String.class),
             FieldDefinition.readWrite(SlaveData1.ADDITIONAL_INFO_FIELD, String.class));
 
-    public SlaveData3(final DataSchema schema, final BaseDataContainer master) {
+    public SlaveData3(final DataSchema schema, final BasicDataContainer master) {
         super(schema, master);
     }
 

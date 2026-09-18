@@ -9,6 +9,11 @@ public final class Scope implements AutoCloseable {
     private final String previousName;
     private boolean closed;
 
+    /**
+     * Creates a scope that restores the given active-binder name when closed.
+     *
+     * @param previousName the binder name to restore on {@link #close()}
+     */
     Scope(final String previousName) {
         this.previousName = previousName;
     }

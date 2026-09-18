@@ -8,7 +8,7 @@ package org.adrian.databinding;
  * @param <T> the type of BaseDataContainer to build
  */
 @FunctionalInterface
-public interface DataObjectBuilder<T extends BaseDataContainer> {
+public interface DataObjectBuilder<T extends BasicDataContainer> {
 
     /**
      * Builds a new data object instance from the given master and schema.
@@ -17,5 +17,5 @@ public interface DataObjectBuilder<T extends BaseDataContainer> {
      * @param schema the schema defining the structure of the new object
      * @return a new data object instance
      */
-    T build(DataSchema schema, BaseDataContainer master);
+    T build(DataSchema schema, BasicDataContainer master);
 }

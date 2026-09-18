@@ -3,7 +3,7 @@ package org.adrian.databinding;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * Formats {@link BaseDataContainer} field state as a human-readable string for debugging.
+ * Formats {@link BasicDataContainer} field state as a human-readable string for debugging.
  */
 public final class DataContainerPrinter {
 
@@ -19,10 +19,10 @@ public final class DataContainerPrinter {
      * @param container the container to format
      * @return a multi-line string representation of the container's field state
      */
-    public static String format(final BaseDataContainer container) {
+    public static String format(final BasicDataContainer container) {
         final StringBuilder sb = new StringBuilder();
         sb.append("=== Data Container: ").append(container.getClass().getSimpleName()).append(" (ID: ")
-                .append(container.getID()).append(") ===\n");
+                .append(container.getId()).append(") ===\n");
 
         for (FieldDefinition fieldDef : container.getSchema().getFieldDefinitions()) {
             final String fieldName = fieldDef.getFieldName();

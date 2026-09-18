@@ -40,7 +40,7 @@ This framework provides a declarative approach to data binding where you can:
 ### 1. Define Your Master Data Class
 
 ```java
-public class MyMasterData extends BaseDataContainer {
+public class MyMasterData extends BasicMasterContainer {
     public static final String NAME_FIELD = "name";
     public static final String VALUE_FIELD = "value";
 
@@ -50,17 +50,11 @@ public class MyMasterData extends BaseDataContainer {
     );
 
     public MyMasterData(String name, int value) {
-        super(SCHEMA);
-
-        // DONT do this in constructor - throws exception for read only fields
-        // setFieldValue(NAME_FIELD, name);
-        // setFieldValue(VALUE_FIELD, value);
-
-        // DO this instead
-        Map<String, Object> initialValues = new HashMap<>();
-        initialValues.put(NAME_FIELD, name);
-        initialValues.put(VALUE_FIELD, value);
-        initValues(initialValues);
+        super(SCHEMA, Map.of(
+            NAME_FIELD, name,
+            VALUE_FIELD, value
+        ));
+        // DONT call setFieldValue(NAME_FIELD, name) in constructor - throws exception for read only fields.
     }
 
     public String getName() { return getFieldValue(NAME_FIELD, String.class); }
@@ -74,13 +68,13 @@ public class MyMasterData extends BaseDataContainer {
 ### 2. Create Slave Data Classes
 
 ```java
-public class ReadOnlySlaveData extends BaseDataContainer {
+public class ReadOnlySlaveData extends BasicSlaveContainer {
     public static final DataSchema SCHEMA = new DataSchema(
         FieldDefinition.readOnly(MyMasterData.NAME_FIELD, String.class),
         FieldDefinition.readOnly(MyMasterData.VALUE_FIELD, Integer.class)
     );
 
-    public ReadOnlySlaveData(DataSchema schema, BaseDataContainer master) {
+    public ReadOnlySlaveData(DataSchema schema, BasicDataContainer master) {
         super(schema, master);
     }
 
@@ -98,8 +92,8 @@ MyMasterData master = new MyMasterData("initial", 42);
 
 // Create bound slave objects
 ReadOnlySlaveData slave = DataFactory.createFrom(
-    master,
     ReadOnlySlaveData.SCHEMA,
+    master,
     ReadOnlySlaveData::new
 );
 
@@ -112,13 +106,15 @@ System.out.println(slave.getName()); // Prints: "updated"
 
 ### Core Components
 
-- **[`BaseDataContainer`](src/org/adrian/databinding/BaseDataContainer.java)**: Abstract base class providing all data binding functionality
+- **[`BasicDataContainer`](src/org/adrian/databinding/BasicDataContainer.java)**: Base class providing all data binding functionality
+- **[`BasicMasterContainer`](src/org/adrian/databinding/BasicMasterContainer.java)**: Convenience base for master containers (no parent)
+- **[`BasicSlaveContainer`](src/org/adrian/databinding/BasicSlaveContainer.java)**: Convenience base for slave containers (copies values from a master)
 - **[`DataSchema`](src/org/adrian/databinding/DataSchema.java)**: Defines field structure and access permissions
 - **[`FieldDefinition`](src/org/adrian/databinding/FieldDefinition.java)**: Specifies individual field access modes
 - **[`DataFactory`](src/org/adrian/databinding/DataFactory.java)**: Thread-safe factory for creating bound objects
 - **[`DataBinder`](src/org/adrian/databinding/DataBinder.java)**: Central registry managing binding relationships; a named multiton so independent binding graphs can coexist in one JVM
 - **[`UpdateChain`](src/org/adrian/databinding/UpdateChain.java)**: Cycle detection and timestamp management
-- **[`DataBinderCleaner`](src/org/adrian/databinding/DataBinderCleaner.java)** Deamon thread to ensure memory is cleaned properly
+- **[`DataBinderCleaner`](src/org/adrian/databinding/DataBinderCleaner.java)** Daemon thread to ensure memory is cleaned properly
 
 ### Thread Safety
 
@@ -175,7 +171,7 @@ Scopes nesting: closing an inner scope restores the outer scope's active name, n
 
 ### Manual Binding with `bindTo` and `bind`
 
-`BaseDataContainer.bindTo(transmitter, fieldName)` and `DataBinder.bind(transmitter, fieldName, receiver, callback)` are public APIs for cases where the schema-driven `DataFactory.createFrom` flow is too restrictive — for example, binding two containers with different field names, wiring a custom `FieldChangeCallback`, or building a topology that isn't a simple master/slave pair.
+`BasicDataContainer.bindTo(transmitter, fieldName)` and `DataBinder.bind(transmitter, fieldName, receiver, callback)` are public APIs for cases where the schema-driven `DataFactory.createFrom` flow is too restrictive — for example, binding two containers with different field names, wiring a custom `FieldChangeCallback`, or building a topology that isn't a simple master/slave pair.
 
 `DataFactory.createFrom` does two things that manual binding does **not**:
 
@@ -187,7 +183,7 @@ When you bind manually, you are responsible for both. The risks:
 | Risk | What happens | Mitigation |
 |------|-------------|------------|
 | **Malformed topology** | Self-loops (binding a container to itself), mismatched field names, or missing reverse bindings are not detected. The cycle breaker prevents infinite loops at runtime, but a half-wired topology produces silent one-way-only sync. | Wire both directions explicitly when bidirectional sync is needed (as `DataFactory.setupBinding` does). |
-| **No-capture constraint** | `DataBinder.bind` accepts an arbitrary `FieldChangeCallback`. If the callback captures the receiver (e.g. an instance method reference `receiver::onFieldChange` or a lambda closing over `receiver`), the `WeakReference` in `WeakFieldChangeCallback` becomes useless — the receiver can never be garbage collected, causing a memory leak. | Use a static method reference (like `BaseDataContainer::onFieldChange`) that receives the receiver as a parameter, never via capture. See [Weak References](#weak-references-letting-the-receiver-be-collected) in the Developer & Maintainer Guide. |
+| **No-capture constraint** | `DataBinder.bind` accepts an arbitrary `FieldChangeCallback`. If the callback captures the receiver (e.g. an instance method reference `receiver::onFieldChange` or a lambda closing over `receiver`), the `WeakReference` in `WeakFieldChangeCallback` becomes useless — the receiver can never be garbage collected, causing a memory leak. | Use a static method reference (like `BasicDataContainer::onFieldChange`) that receives the receiver as a parameter, never via capture. See [Weak References](#weak-references-letting-the-receiver-be-collected) in the Developer & Maintainer Guide. |
 
 > [!IMPORTANT]
 > If you only need a standard master/slave binding, use `DataFactory.createFrom`. Manual binding is an escape hatch, not the default path.
@@ -229,7 +225,7 @@ Every binding is a directed relationship between two objects for a specific fiel
 - **Transmitter** — the object *whose* field change triggers notification. When a transmitter's field is written, `DataBinder` looks up the transmitter's UUID in its forward index to find all registered callbacks.
 - **Receiver** — the object that *gets notified* and updated. It is the target of the callback; its `onFieldChange` method is invoked with the new value.
 
-In `DataBinder.bind(transmitter, fieldName, receiver, callback)`, the transmitter is the source and the receiver is the destination. In `BaseDataContainer.bindTo(transmitter, fieldName)`, the calling object (`this`) registers *itself* as the receiver of the transmitter's changes.
+In `DataBinder.bind(transmitter, fieldName, receiver, callback)`, the transmitter is the source and the receiver is the destination. In `BasicDataContainer.bindTo(transmitter, fieldName)`, the calling object (`this`) registers *itself* as the receiver of the transmitter's changes.
 
 How this maps to master/slave in `DataFactory.setupBinding`:
 
@@ -260,7 +256,7 @@ user calls container.setFieldValue("field", value)          // public setter
             └─ for each WeakFieldChangeCallback on (this, "field"):
                  └─ callback.execute(...)
                       ├─ if receiver already GC'd → mark expired, skip
-                      └─ FieldChangeCallback.onFieldChange(receiver, "field", …, chain)
+                       └─ FieldChangeCallback.onFieldChange(event)
                            ├─ if chain.contains(receiver.id) → SKIP   // cycle break
                            ├─ chain.add(receiver.id)
                            └─ receiver.setFieldValue("field", newValue, chain)  // internal setter
@@ -281,9 +277,9 @@ There are two `setFieldValue` paths, and they enforce access control differently
 |------|:---:|:---:|:---:|---|
 | `setFieldValue(String, Object)` — public | Yes | Yes (new chain) | Yes | User code |
 | `setFieldValue(String, Object, UpdateChain)` — private | **No** | Yes | Yes | Propagation / callbacks |
-| `initValues(Map)` — protected | No | No | **No** | Construction only |
+| `initValues(Map)` — private | No | No | **No** | Construction only |
 
-The private setter deliberately skips the `isWritable()` check so that a `READ_ONLY` field on a slave *can* be updated by propagation from the master — it just can't be set directly by user code. `initValues` is the third path: it writes `AtomicReference` values directly, sets no timestamps, and fires no callbacks. It exists solely for construction-time initialization.
+The private setter deliberately skips the `isWritable()` check so that a `READ_ONLY` field on a slave *can* be updated by propagation from the master — it just can't be set directly by user code. `initValues` is the third path: it writes `AtomicReference` values directly, sets no timestamps, and fires no callbacks. It is `private` and only reachable from constructors, so it cannot be called post-construction. For slave containers, `BasicSlaveContainer` calls `initValues` with the slave's own initial values, then `copyValuesFromMaster` copies shared fields from the master — fields present in both are overwritten by the master's values.
 
 ### Schema-Driven Asymmetric Binding
 
@@ -340,7 +336,7 @@ DataBinder (named multiton instance)
 When `DataBinder.update()` iterates callbacks, each `WeakFieldChangeCallback.execute()` checks `weakOwner.get()`. If the receiver is still alive, it invokes the callback normally. If the receiver was collected, `get()` returns `null` and the callback is marked **expired** — the update is skipped for that receiver, and the expired callback is removed from the list lazily. This prevents stale notifications to dead objects and gradually prunes the list.
 
 > [!IMPORTANT] 
-> **The no-capture constraint:** For this to work, the `FieldChangeCallback` itself must **not** capture the receiver. If it did, the strong reference chain would be `DataBinder → callback → receiver`, and the weak reference would be pointless. `BaseDataContainer.bindTo` passes `BaseDataContainer::onFieldChange` — a *static* method reference that receives the receiver as a **parameter**, not via capture. An instance method reference (`owner::onFieldChange`) or a lambda closing over `owner` would capture the receiver strongly and defeat the entire mechanism.
+> **The no-capture constraint:** For this to work, the `FieldChangeCallback` itself must **not** capture the receiver. If it did, the strong reference chain would be `DataBinder → callback → receiver`, and the weak reference would be pointless. `BasicDataContainer.bindTo` passes `BasicDataContainer::onFieldChange` — a *static* method reference that receives the receiver as a **parameter**, not via capture. An instance method reference (`owner::onFieldChange`) or a lambda closing over `owner` would capture the receiver strongly and defeat the entire mechanism.
 
 #### Phantom References: Post-GC Cleanup of the Index Itself
 
@@ -380,7 +376,7 @@ Layer 1 is **lazy** — it only runs when a write happens, so it handles the com
 | Layer | Mechanism | Notes |
 |------|-----------|-------|
 | Per-field value | `AtomicReference<Object>` | Lock-free reads/writes |
-| Per-field timestamp | `AtomicLong` | Init `0L` |
+| Per-field timestamp | `AtomicLong` | Init `Long.MIN_VALUE` |
 | Per-field access | `ReentrantReadWriteLock` | Multiple readers / single writer |
 | Multi-field snapshot | [`MultiLockManager`](src/org/adrian/databinding/MultiLockManager.java) | Acquires in caller-given order, releases LIFO |
 | Binding registry | `ConcurrentHashMap` + `CopyOnWriteArrayList` | Lock-free reads, copy-on-write iteration |
@@ -390,38 +386,38 @@ Layer 1 is **lazy** — it only runs when a write happens, so it handles the com
 ### Key Invariants for Maintainers
 
 - `DataFactory.createFrom` is the **recommended** entry point that sets up bindings with snapshot locking and validation. `bindTo` and `DataBinder.bind` are public for advanced use but bypass those guarantees — see [Advanced: Manual Binding](#advanced-manual-binding).
-- `initValues` bypasses timestamps and propagation — use it only during construction. Calling it after binding is established will create silent inconsistencies (value present, timestamp `0`, no propagation).
+- `initValues` bypasses timestamps and propagation — it is `private` and only reachable from constructors. `BasicMasterContainer` / `BasicSlaveContainer` constructors call it with the container's own initial values. For slaves, `copyValuesFromMaster` then copies shared fields from the master, overwriting any values set by `initValues` for those fields.
 - `getFieldValue` wraps mutable values (unmodifiable views for collections, defensive copies for arrays and `Copyable` types) to prevent in-place mutation from bypassing the propagation contract. Always use `setFieldValue` with a new value to change a field. Prefer immutable field types; use `Copyable<T>` only when mutability is unavoidable.
 - The public setter enforces `isWritable()`; the private setter (propagation path) does not. Don't "fix" this asymmetry — it's how `READ_ONLY` fields receive master updates.
 - `DataBinder` is a named multiton. New containers capture the thread-local active instance (`DataBinder.getActive()`) at construction into a `final` field; slaves inherit the master's instance. Use `DataBinder.setActive(name)` (returns an `AutoCloseable` scope) to scope a binding graph, or the `(schema, binder)` constructor for explicit injection.
 - `DataBinderCleaner` is a package-private, instance-based component owned by each `DataBinder`. Its daemon thread starts lazily when the `DataBinder` instance is first created (via `get`/`getActive`). The loop polls a `ReferenceQueue` with a timeout so it can self-check a shutdown flag (no `Thread.interrupt()`). Any `Throwable` from the loop body triggers a capped restart (5 per 60 s sliding window, with backoff); if the cap is exceeded the owning `DataBinder` is fail-stopped (`bind`/`update` then throw `IllegalStateException`). Tests that depend on cleanup (e.g. `DataBinderCleanupTest`) force GC and sleep, so they can be timing-sensitive.
-- Field lookup in `DataSchema` is O(n). Fine for small schemas; revisit if schemas grow large.
+- Field lookup in `DataSchema` is O(1) (`HashMap`-backed). Fine for schemas of any size.
 
 ## Example
 
 See [`DataBindingDemo`](src/org/adrian/databinding/demo/DataBindingDemo.java) for a complete working example:
 
 ```console
-=== Data Container: MasterData (ID: 01d7e1d7-cc23-403c-917e-0410258c8890) ===
-  name: initial (timestamp: 11623897004900)
-  type: initial (timestamp: 11623899582500)
-  notes: initial (timestamp: 11623899621600)
+=== Data Container: MasterData (ID: d05a1213-bf4f-4220-a758-831d341d8924) ===
+  notes: initial (timestamp: -9223372036854775808)
+  name: initial (timestamp: -9223372036854775808)
+  type: initial (timestamp: -9223372036854775808)
 
-=== Data Container: SlaveData1 (ID: d57a996b-a932-45d7-a462-fb321e76f442) ===
-  name: initial (timestamp: 0)
-  type: initial (timestamp: 0)
-  notes: initial (timestamp: 0)
-  additionalInfo: initial (timestamp: 11623925742800)
+=== Data Container: SlaveData1 (ID: a3744b9e-a900-4f4a-a98a-d554c039839c) ===
+  notes: initial (timestamp: -9223372036854775808)
+  name: initial (timestamp: -9223372036854775808)
+  additionalInfo: initial (timestamp: -9223372036854775808)
+  type: initial (timestamp: -9223372036854775808)
 
-=== Data Container: SlaveData2 (ID: 161281fc-5681-49ac-a310-d908b73943b9) ===
-  name: initial (timestamp: 0)
-  notes: initial (timestamp: 0)
+=== Data Container: SlaveData2 (ID: 28ce63d9-422f-4ae9-a495-ee7778e7cabe) ===
+  notes: initial (timestamp: -9223372036854775808)
+  name: initial (timestamp: -9223372036854775808)
 
-=== Data Container: SlaveData3 (ID: f7ecf8bb-5a94-4535-bac0-454ebdd1c973) ===
-  name: initial (timestamp: 0)
-  notes: initial (timestamp: 0)
-  type: initial (timestamp: 0)
-  additionalInfo: initial (timestamp: 0)
+=== Data Container: SlaveData3 (ID: f59ae854-8b22-4849-8d8e-7e0c12ddea36) ===
+  notes: initial (timestamp: -9223372036854775808)
+  name: initial (timestamp: -9223372036854775808)
+  additionalInfo: initial (timestamp: -9223372036854775808)
+  type: initial (timestamp: -9223372036854775808)
 
 === Testing Bidirectional Binding ===
 After master update:
@@ -441,27 +437,26 @@ Slave1 notes: Slave3
 Slave2 notes: Slave3
 Slave3 notes: Slave3
 
-=== Data Container: MasterData (ID: 01d7e1d7-cc23-403c-917e-0410258c8890) ===
-  name: master (timestamp: 11623929741200)
-  type: Slave1 (timestamp: 11623931280200)
-  notes: Slave3 (timestamp: 11623931633400)
+=== Data Container: MasterData (ID: d05a1213-bf4f-4220-a758-831d341d8924) ===
+  notes: Slave3 (timestamp: -9223372036854775805)
+  name: master (timestamp: -9223372036854775807)
+  type: Slave1 (timestamp: -9223372036854775806)
 
-=== Data Container: SlaveData1 (ID: d57a996b-a932-45d7-a462-fb321e76f442) ===
-  name: master (timestamp: 11623929741200)
-  type: Slave1 (timestamp: 11623931280200)
-  notes: Slave3 (timestamp: 11623931633400)
-  additionalInfo: initial (timestamp: 11623925742800)
+=== Data Container: SlaveData1 (ID: a3744b9e-a900-4f4a-a98a-d554c039839c) ===
+  notes: Slave3 (timestamp: -9223372036854775805)
+  name: master (timestamp: -9223372036854775807)
+  additionalInfo: initial (timestamp: -9223372036854775808)
+  type: Slave1 (timestamp: -9223372036854775806)
 
-=== Data Container: SlaveData2 (ID: 161281fc-5681-49ac-a310-d908b73943b9) ===
-  name: master (timestamp: 11623929741200)
-  notes: Slave3 (timestamp: 11623931633400)
+=== Data Container: SlaveData2 (ID: 28ce63d9-422f-4ae9-a495-ee7778e7cabe) ===
+  notes: Slave3 (timestamp: -9223372036854775805)
+  name: master (timestamp: -9223372036854775807)
 
-=== Data Container: SlaveData3 (ID: f7ecf8bb-5a94-4535-bac0-454ebdd1c973) ===
-  name: master (timestamp: 11623929741200)
-  notes: Slave3 (timestamp: 11623931633400)
-  type: Slave1 (timestamp: 11623931280200)
-  additionalInfo: initial (timestamp: 0)
-
+=== Data Container: SlaveData3 (ID: f59ae854-8b22-4849-8d8e-7e0c12ddea36) ===
+  notes: Slave3 (timestamp: -9223372036854775805)
+  name: master (timestamp: -9223372036854775807)
+  additionalInfo: initial (timestamp: -9223372036854775808)
+  type: Slave1 (timestamp: -9223372036854775806)
 
 ```
 

@@ -18,7 +18,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * </p>
  * <p>
  * A <em>thread-local active instance</em> (see {@link #getActive()}, {@link #setActive(String)}) determines which
- * registry newly-constructed {@link BaseDataContainer}s bind into. {@link BaseDataContainer} captures the active
+ * registry newly-constructed {@link BasicDataContainer}s bind into. {@link BasicDataContainer} captures the active
  * instance at construction time into a {@code final} field, so no runtime dependency on global state remains after
  * construction. The active instance defaults to {@code "default"} when no name has been set. {@link #setActive(String)}
  * returns a {@link Scope} ( {@code AutoCloseable}) that restores the previous active name when closed.
@@ -83,7 +83,7 @@ public class DataBinder {
 
     /**
      * Returns the active {@code DataBinder} instance for the current thread, creating it lazily if needed. The active
-     * instance is thread-local and defaults to {@code "default"}. It is captured by {@link BaseDataContainer} at
+     * instance is thread-local and defaults to {@code "default"}. It is captured by {@link BasicDataContainer} at
      * construction time, so calling this method later returns whatever is currently active for the calling thread.
      *
      * @return the active instance for the current thread
@@ -94,7 +94,7 @@ public class DataBinder {
 
     /**
      * Sets the active {@code DataBinder} name for the current thread and returns a {@link Scope} that restores the
-     * previous active name when closed. Subsequent calls to {@link #getActive()} (and thus {@link BaseDataContainer}
+     * previous active name when closed. Subsequent calls to {@link #getActive()} (and thus {@link BasicDataContainer}
      * construction) on this thread will use the named instance until the returned scope is closed.
      * <p>
      * Typical usage with a try-with-resources statement:
@@ -170,7 +170,7 @@ public class DataBinder {
      *            callback must not capture the receiver instance. See {@link WeakFieldChangeCallback} for
      *            details.
      */
-    public void bind(final IBindable transmitter, final String fieldName, final BaseDataContainer receiver,
+    public void bind(final IBindable transmitter, final String fieldName, final BasicDataContainer receiver,
             final FieldChangeCallback callback) {
         if ((transmitter == null) || (fieldName == null) || (receiver == null) || (callback == null)) {
             throw new IllegalArgumentException("no argument must not be null");
@@ -181,7 +181,7 @@ public class DataBinder {
         WeakFieldChangeCallback weakCallback = new WeakFieldChangeCallback(receiver, callback);
 
         // add to main bindings cache
-        this.transmitterBindings.compute(transmitter.getID(), (_, fieldsCallbacks) -> {
+        this.transmitterBindings.compute(transmitter.getId(), (_, fieldsCallbacks) -> {
             Map<String, List<WeakFieldChangeCallback>> map =
                     (fieldsCallbacks != null) ? fieldsCallbacks : new ConcurrentHashMap<>();
             map.computeIfAbsent(fieldName, _ -> new CopyOnWriteArrayList<>()).add(weakCallback);
@@ -189,8 +189,8 @@ public class DataBinder {
         });
 
         // Add to receiver index for fast cleanup
-        BindingReference bindingRef = new BindingReference(transmitter.getID(), fieldName, weakCallback);
-        this.receiverBindings.computeIfAbsent(receiver.getID(), _ -> new CopyOnWriteArrayList<>()).add(bindingRef);
+        BindingReference bindingRef = new BindingReference(transmitter.getId(), fieldName, weakCallback);
+        this.receiverBindings.computeIfAbsent(receiver.getId(), _ -> new CopyOnWriteArrayList<>()).add(bindingRef);
 
         // register for cleanup to avoid memory leaks
         this.cleaner.registerTransmitter(transmitter);
@@ -198,7 +198,7 @@ public class DataBinder {
     }
 
     /**
-     * Removes all bindings for a garbage collected {@link BaseDataContainer}. This method is called automatically by
+     * Removes all bindings for a garbage collected {@link BasicDataContainer}. This method is called automatically by
      * the {@link DataBinderCleaner}.
      *
      * @param containerID the UUID of the garbage collected container
@@ -247,7 +247,7 @@ public class DataBinder {
             return;
         }
 
-        List<WeakFieldChangeCallback> specificCallbacks = getSpecificCallbacks(source.getID(), fieldName);
+        List<WeakFieldChangeCallback> specificCallbacks = getSpecificCallbacks(source.getId(), fieldName);
 
         // notify specific field listeners
         List<WeakFieldChangeCallback> expiredCallbacks = new ArrayList<>();
@@ -257,7 +257,7 @@ public class DataBinder {
                 expiredCallbacks.add(callback);
             }
         }
-        removeExpiredCallbacks(source.getID(), fieldName, expiredCallbacks);
+        removeExpiredCallbacks(source.getId(), fieldName, expiredCallbacks);
     }
 
     private void removeExpiredCallbacks(final UUID sourceId, final String fieldName,

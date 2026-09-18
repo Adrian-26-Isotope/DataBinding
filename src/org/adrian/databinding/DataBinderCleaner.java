@@ -18,16 +18,15 @@ import java.util.concurrent.ConcurrentMap;
  */
 class DataBinderCleaner {
 
+    private static final long POLL_TIMEOUT_MS = 1000L;
+    private static final System.Logger LOGGER = System.getLogger(MultiLockManager.class.getName());
+
     private final DataBinder owner;
+    private volatile boolean shutdownRequested;
+    private final RestartGuard restartGuard = new RestartGuard();
     private final ReferenceQueue<IBindable> referenceQueue = new ReferenceQueue<>();
     private final ConcurrentMap<PhantomReference<IBindable>, UUID> transmitterMap = new ConcurrentHashMap<>();
     private final ConcurrentMap<PhantomReference<IBindable>, UUID> receiverMap = new ConcurrentHashMap<>();
-
-    private volatile boolean shutdownRequested;
-
-    private static final long POLL_TIMEOUT_MS = 1000L;
-
-    private final RestartGuard restartGuard = new RestartGuard();
 
     /**
      * Constructs a cleaner owned by the specified {@link DataBinder} and starts the background daemon thread.
@@ -46,7 +45,7 @@ class DataBinderCleaner {
      * @param receiver the container to monitor for garbage collection
      */
     void registerReceiver(final IBindable receiver) {
-        UUID id = receiver.getID();
+        UUID id = receiver.getId();
         PhantomReference<IBindable> phantomRef = new PhantomReference<>(receiver, this.referenceQueue);
         this.receiverMap.put(phantomRef, id);
     }
@@ -57,7 +56,7 @@ class DataBinderCleaner {
      * @param container the container to monitor for garbage collection
      */
     void registerTransmitter(final IBindable container) {
-        UUID id = container.getID();
+        UUID id = container.getId();
         PhantomReference<IBindable> phantomRef = new PhantomReference<>(container, this.referenceQueue);
         this.transmitterMap.put(phantomRef, id);
     }
@@ -104,7 +103,7 @@ class DataBinderCleaner {
             return false;
         }
         if (!this.restartGuard.allowRestart()) {
-            System.err.println("Error in DataBinderCleaner thread: " + t.getMessage());
+            LOGGER.log(System.Logger.Level.ERROR, "Error in DataBinderCleaner thread: " + t.getMessage());
             failStopBestEffort();
             return false;
         }

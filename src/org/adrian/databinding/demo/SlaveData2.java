@@ -1,19 +1,20 @@
 package org.adrian.databinding.demo;
 
-import org.adrian.databinding.BaseDataContainer;
+import org.adrian.databinding.BasicDataContainer;
+import org.adrian.databinding.BasicSlaveContainer;
 import org.adrian.databinding.DataSchema;
 import org.adrian.databinding.FieldDefinition;
 
 /**
  * SlaveData2 that inherits only name and notes fields as read-only.
  */
-public class SlaveData2 extends BaseDataContainer {
+public class SlaveData2 extends BasicSlaveContainer {
 
     public static final DataSchema SCHEMA = new DataSchema(
             FieldDefinition.readOnly(MasterData.NAME_FIELD, String.class),
             FieldDefinition.readOnly(MasterData.NOTES_FIELD, String.class));
 
-    public SlaveData2(final DataSchema schema, final BaseDataContainer master) {
+    public SlaveData2(final DataSchema schema, final BasicDataContainer master) {
         super(schema, master);
     }
 

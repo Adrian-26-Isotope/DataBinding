@@ -4,27 +4,27 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import org.adrian.databinding.demo.MasterData;
-import org.adrian.databinding.demo.SlaveData1;
-import org.adrian.databinding.demo.SlaveData2;
-import org.adrian.databinding.demo.SlaveData3;
+import org.adrian.databinding.data.TestMasterData;
+import org.adrian.databinding.data.TestSlaveData1;
+import org.adrian.databinding.data.TestSlaveData2;
+import org.adrian.databinding.data.TestSlaveData3;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class BaseDataContainerTest {
 
-    private MasterData master;
-    private SlaveData1 slave1;
-    private SlaveData2 slave2;
-    private SlaveData3 slave3;
+    private TestMasterData master;
+    private TestSlaveData1 slave1;
+    private TestSlaveData2 slave2;
+    private TestSlaveData3 slave3;
 
     @BeforeEach
     void setUp() {
-        this.master = new MasterData("test", "type1", "notes1");
-        this.slave1 = this.master.createSlaveData1();
-        this.slave2 = this.master.createSlaveData2();
-        this.slave3 = this.slave1.createSlaveData3();
+        this.master = new TestMasterData("test", "type1", "notes1");
+        this.slave1 = DataFactory.createFrom(TestSlaveData1.SCHEMA, this.master, TestSlaveData1::new);
+        this.slave2 = DataFactory.createFrom(TestSlaveData2.SCHEMA, this.master, TestSlaveData2::new);
+        this.slave3 = DataFactory.createFrom(TestSlaveData3.SCHEMA, this.slave1, TestSlaveData3::new);
     }
 
     @AfterAll
@@ -93,18 +93,18 @@ class BaseDataContainerTest {
     @Test
     void testUniqueIds() {
         // Each data container should have a unique ID
-        assertNotNull(this.master.getID());
-        assertNotNull(this.slave1.getID());
-        assertNotNull(this.slave2.getID());
-        assertNotNull(this.slave3.getID());
+        assertNotNull(this.master.getId());
+        assertNotNull(this.slave1.getId());
+        assertNotNull(this.slave2.getId());
+        assertNotNull(this.slave3.getId());
 
         // IDs should be different
-        assert !this.master.getID().equals(this.slave1.getID());
-        assert !this.master.getID().equals(this.slave2.getID());
-        assert !this.master.getID().equals(this.slave3.getID());
-        assert !this.slave1.getID().equals(this.slave2.getID());
-        assert !this.slave1.getID().equals(this.slave3.getID());
-        assert !this.slave2.getID().equals(this.slave3.getID());
+        assert !this.master.getId().equals(this.slave1.getId());
+        assert !this.master.getId().equals(this.slave2.getId());
+        assert !this.master.getId().equals(this.slave3.getId());
+        assert !this.slave1.getId().equals(this.slave2.getId());
+        assert !this.slave1.getId().equals(this.slave3.getId());
+        assert !this.slave2.getId().equals(this.slave3.getId());
     }
 
     @Test
@@ -119,7 +119,7 @@ class BaseDataContainerTest {
     @Test
     void testReadOnly() {
         assertThrows(IllegalArgumentException.class,
-                () -> this.slave2.setFieldValue(MasterData.NAME_FIELD, "expect exception"));
+                () -> this.slave2.setFieldValue(TestMasterData.NAME_FIELD, "expect exception"));
     }
 
     @Test

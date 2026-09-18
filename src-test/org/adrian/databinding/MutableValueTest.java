@@ -11,7 +11,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests for the mutable-value wrapping mechanism in {@link BaseDataContainer#getFieldValue}.
+ * Tests for the mutable-value wrapping mechanism in {@link BasicDataContainer#getFieldValue}.
  * Verifies that JDK collections, arrays, and {@link Copyable} custom types are
  * wrapped on read to prevent in-place mutation from bypassing the binding
  * propagation contract.
@@ -62,39 +62,45 @@ class MutableValueTest {
      * Test container supporting List, array, and Copyable fields with both
      * master and slave constructors.
      */
-    static final class MutableTestContainer extends BaseDataContainer {
+    static final class MutableTestContainer {
 
-        MutableTestContainer(final DataSchema schema) {
-            super(schema);
+        private final BasicDataContainer wrapped;
+
+        static MutableTestContainer createMaster(final DataSchema schema) {
+            return new MutableTestContainer(new BasicMasterContainer(schema, DataBinder.getActive()) {});
         }
 
-        MutableTestContainer(final DataSchema schema, final BaseDataContainer master) {
-            super(schema, master);
+        static MutableTestContainer createSlave(final DataSchema schema, final MutableTestContainer master) {
+            return new MutableTestContainer(DataFactory.createFrom(schema, master.wrapped, BasicSlaveContainer::new));
+        }
+
+        private MutableTestContainer(final BasicDataContainer wrapped) {
+            this.wrapped = wrapped;
         }
 
         void setItems(final List<String> items) {
-            setFieldValue(ITEMS_FIELD, items);
+            this.wrapped.setFieldValue(ITEMS_FIELD, items);
         }
 
         @SuppressWarnings("unchecked")
         List<String> getItems() {
-            return getFieldValue(ITEMS_FIELD, List.class);
+            return this.wrapped.getFieldValue(ITEMS_FIELD, List.class);
         }
 
         void setArray(final String[] array) {
-            setFieldValue(ARRAY_FIELD, array);
+            this.wrapped.setFieldValue(ARRAY_FIELD, array);
         }
 
         String[] getArray() {
-            return getFieldValue(ARRAY_FIELD, String[].class);
+            return this.wrapped.getFieldValue(ARRAY_FIELD, String[].class);
         }
 
         void setCustom(final MutableData custom) {
-            setFieldValue(CUSTOM_FIELD, custom);
+            this.wrapped.setFieldValue(CUSTOM_FIELD, custom);
         }
 
         MutableData getCustom() {
-            return getFieldValue(CUSTOM_FIELD, MutableData.class);
+            return this.wrapped.getFieldValue(CUSTOM_FIELD, MutableData.class);
         }
     }
 
@@ -105,7 +111,7 @@ class MutableValueTest {
 
     @Test
     void testListFieldReturnsUnmodifiableView() {
-        MutableTestContainer container = new MutableTestContainer(RW_LIST_SCHEMA);
+        MutableTestContainer container = MutableTestContainer.createMaster(RW_LIST_SCHEMA);
         List<String> items = new ArrayList<>(List.of("a", "b"));
         container.setItems(items);
 
@@ -115,11 +121,11 @@ class MutableValueTest {
 
     @Test
     void testReadOnlySlaveCannotMutateMasterViaList() {
-        MutableTestContainer master = new MutableTestContainer(RW_LIST_SCHEMA);
+        MutableTestContainer master = MutableTestContainer.createMaster(RW_LIST_SCHEMA);
         List<String> items = new ArrayList<>(List.of("a", "b"));
         master.setItems(items);
 
-        MutableTestContainer slave = DataFactory.createFrom(master, RO_LIST_SCHEMA, MutableTestContainer::new);
+        var slave = MutableTestContainer.createSlave(RO_LIST_SCHEMA, master);
 
         List<String> slaveView = slave.getItems();
         assertThrows(UnsupportedOperationException.class, () -> slaveView.add("c"));
@@ -129,7 +135,7 @@ class MutableValueTest {
 
     @Test
     void testArrayReturnsDefensiveCopy() {
-        MutableTestContainer container = new MutableTestContainer(RW_ARRAY_SCHEMA);
+        MutableTestContainer container = MutableTestContainer.createMaster(RW_ARRAY_SCHEMA);
         String[] original = { "a", "b" };
         container.setArray(original);
 
@@ -143,7 +149,7 @@ class MutableValueTest {
 
     @Test
     void testCopyableCustomTypeReturnsCopy() {
-        MutableTestContainer container = new MutableTestContainer(RW_CUSTOM_SCHEMA);
+        MutableTestContainer container = MutableTestContainer.createMaster(RW_CUSTOM_SCHEMA);
         MutableData data = new MutableData("initial");
         container.setCustom(data);
 
@@ -157,10 +163,10 @@ class MutableValueTest {
 
     @Test
     void testReadOnlySlaveCannotMutateMasterViaCopyable() {
-        MutableTestContainer master = new MutableTestContainer(RW_CUSTOM_SCHEMA);
+        MutableTestContainer master = MutableTestContainer.createMaster(RW_CUSTOM_SCHEMA);
         master.setCustom(new MutableData("initial"));
 
-        MutableTestContainer slave = DataFactory.createFrom(master, RO_CUSTOM_SCHEMA, MutableTestContainer::new);
+        MutableTestContainer slave = MutableTestContainer.createSlave(RO_CUSTOM_SCHEMA, master);
 
         MutableData slaveView = slave.getCustom();
         slaveView.setValue("mutated");
@@ -171,7 +177,7 @@ class MutableValueTest {
 
     @Test
     void testUnmodifiableViewReflectsSetFieldValue() {
-        MutableTestContainer container = new MutableTestContainer(RW_LIST_SCHEMA);
+        MutableTestContainer container = MutableTestContainer.createMaster(RW_LIST_SCHEMA);
         container.setItems(new ArrayList<>(List.of("a")));
 
         container.setItems(new ArrayList<>(List.of("x", "y")));

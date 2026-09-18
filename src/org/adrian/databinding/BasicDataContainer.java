@@ -18,7 +18,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * objects,
  * and timestamp-based conflict resolution for concurrent updates.
  */
-public abstract class BaseDataContainer implements IBindable {
+public class BasicDataContainer implements IBindable {
 
     private final UUID id = UUID.randomUUID();
     private final DataSchema schema;
@@ -30,73 +30,21 @@ public abstract class BaseDataContainer implements IBindable {
     private final Map<String, ReentrantReadWriteLock> fieldLocks = new ConcurrentHashMap<>();
 
     /**
-     * Constructor for 'master' data instances that don't inherit from other containers. Captures the thread-local
-     * active {@link DataBinder} instance at construction time.
-     *
-     * @param schema the schema defining the fields and their access permissions
-     */
-    protected BaseDataContainer(final DataSchema schema) {
-        this(schema, DataBinder.getActive());
-    }
-
-    /**
-     * Constructor for 'master' data instances that don't inherit from other containers, using an explicit
-     * {@link DataBinder} instance.
+     * Constructor for data containers that don't inherit from other containers,
+     * using an explicit {@link DataBinder} instance. Initializes fields from the
+     * schema, then applies {@code initialValues} without triggering binding
+     * propagation.
      *
      * @param schema the schema defining the fields and their access permissions
      * @param binder the {@link DataBinder} instance this container registers its bindings with
+     * @param initialValues map of field names to their initial values; may be empty
      */
-    protected BaseDataContainer(final DataSchema schema, final DataBinder binder) {
+    protected BasicDataContainer(final DataSchema schema, final DataBinder binder,
+            final Map<String, Object> initialValues) {
         this.schema = schema;
         this.binder = binder;
         initFields();
-    }
-
-    /**
-     * Constructor that automatically copies field values from a master container.
-     * Used for creating 'slave' objects that inherit values from a master. The slave inherits the master's
-     * {@link DataBinder} instance, ensuring the master and slave share one binding registry.
-     *
-     * @param schema the schema defining the fields and their access permissions
-     * @param master the master container to copy initial values from
-     */
-    protected BaseDataContainer(final DataSchema schema, final BaseDataContainer master) {
-        this(schema, master.binder);
-        copyValuesFromMaster(master);
-    }
-
-    /**
-     * Copy field values from master container for fields that exist in both schemas.
-     * <p>
-     * Reads the master's raw stored references directly (not via
-     * {@link #getFieldValue}) so that the slave stores the same raw value the
-     * propagation path would deliver — {@code getFieldValue} wraps mutable
-     * values in unmodifiable views or defensive copies, which must not be
-     * stored as the field's backing value.
-     */
-    private void copyValuesFromMaster(final BaseDataContainer master) {
-        for (FieldDefinition fieldDef : this.schema.getFieldDefinitions()) {
-            String fieldName = fieldDef.getFieldName();
-            if (!fieldDef.isReadable()) {
-                continue;
-            }
-            FieldDefinition masterFieldDef = master.schema.getFieldDefinition(fieldName);
-            if ((masterFieldDef == null) || !masterFieldDef.isReadable()) {
-                continue;
-            }
-            AtomicReference<Object> masterField = master.fieldValues.get(fieldName);
-            if (masterField == null) {
-                continue;
-            }
-            Object value = masterField.get();
-            AtomicReference<Object> field = this.fieldValues.get(fieldName);
-            AtomicLong timestamp = this.fieldTimestamps.get(fieldName);
-            AtomicLong masterTimestamp = master.fieldTimestamps.get(fieldName);
-            if ((field != null) && (timestamp != null) && (masterTimestamp != null)) {
-                field.set(value);
-                timestamp.set(masterTimestamp.get());
-            }
-        }
+        initValues(initialValues);
     }
 
     /**
@@ -105,7 +53,7 @@ public abstract class BaseDataContainer implements IBindable {
      * @return the unique UUID for this container
      */
     @Override
-    public UUID getID() {
+    public UUID getId() {
         return this.id;
     }
 
@@ -118,11 +66,40 @@ public abstract class BaseDataContainer implements IBindable {
         return this.schema;
     }
 
+    /**
+     * Gets the {@link DataBinder} instance this container is registered with.
+     *
+     * @return the binder
+     */
+    DataBinder getBinder() {
+        return this.binder;
+    }
+
+
+    /**
+     * Gets the internal field-value storage map.
+     *
+     * @return the field values map
+     */
+    Map<String, AtomicReference<Object>> getFieldValues() {
+        return this.fieldValues;
+    }
+
+
+    /**
+     * Gets the internal field-timestamp storage map.
+     *
+     * @return the field timestamps map
+     */
+    Map<String, AtomicLong> getFieldTimestamps() {
+        return this.fieldTimestamps;
+    }
+
     private void initFields() {
-        for (FieldDefinition fieldDef : this.schema.getFieldDefinitions()) {
+        for (FieldDefinition fieldDef : getSchema().getFieldDefinitions()) {
             String fieldName = fieldDef.getFieldName();
-            this.fieldValues.put(fieldName, new AtomicReference<>());
-            this.fieldTimestamps.put(fieldName, new AtomicLong(Long.MIN_VALUE));
+            getFieldValues().put(fieldName, new AtomicReference<>());
+            getFieldTimestamps().put(fieldName, new AtomicLong(Long.MIN_VALUE));
             this.fieldLocks.put(fieldName, new ReentrantReadWriteLock());
         }
     }
@@ -130,10 +107,15 @@ public abstract class BaseDataContainer implements IBindable {
     /**
      * Initialize field values without triggering any data binding updates.
      * Used during object construction to set initial values.
+     * <p>
+     * This method bypasses writability checks, timestamp assignment, and
+     * binding propagation. It is {@code private} and only reachable from
+     * constructors in this class and its subclasses (via the
+     * {@code (schema, binder, initialValues)} constructor).
      *
      * @param initialValues map of field names to their initial values
      */
-    protected void initValues(final Map<String, Object> initialValues) {
+    private void initValues(final Map<String, Object> initialValues) {
         if ((initialValues == null) || initialValues.isEmpty()) {
             return;
         }
@@ -142,12 +124,12 @@ public abstract class BaseDataContainer implements IBindable {
             String fieldName = entry.getKey();
             Object value = entry.getValue();
 
-            FieldDefinition fieldDef = this.schema.getFieldDefinition(fieldName);
+            FieldDefinition fieldDef = getSchema().getFieldDefinition(fieldName);
             if (fieldDef != null) {
                 validateFieldType(fieldDef, value);
             }
 
-            AtomicReference<Object> field = this.fieldValues.get(fieldName);
+            AtomicReference<Object> field = getFieldValues().get(fieldName);
             if (field != null) {
                 field.set(value);
             }
@@ -155,8 +137,6 @@ public abstract class BaseDataContainer implements IBindable {
     }
 
     /**
-     * Type-checked getter for a field defined in the schema. Validates that the stored
-     * value is assignable to the requested type before returning it.
      * <p>
      * <strong>Propagation contract:</strong> {@code setFieldValue} is the
      * <em>only</em> path that triggers binding propagation (creates an
@@ -170,14 +150,14 @@ public abstract class BaseDataContainer implements IBindable {
      * <strong>Mutable-value wrapping:</strong> to prevent in-place mutation,
      * mutable values are wrapped before being returned:
      * <ul>
-     *   <li>JDK {@link List}, {@link Set}, {@link Map}, and other
-     *       {@link Collection} types are returned as unmodifiable views
-     *       (no copy cost, mutation blocked at the API boundary).</li>
-     *   <li>Arrays are returned as defensive copies.</li>
-     *   <li>Custom types implementing {@link Copyable} are returned as a copy
-     *       via {@code copy()}.</li>
-     *   <li>Immutable types (e.g. {@code String}, {@code Integer}, records) are
-     *       returned as-is.</li>
+     * <li>JDK {@link List}, {@link Set}, {@link Map}, and other
+     * {@link Collection} types are returned as unmodifiable views
+     * (no copy cost, mutation blocked at the API boundary).</li>
+     * <li>Arrays are returned as defensive copies.</li>
+     * <li>Custom types implementing {@link Copyable} are returned as a copy
+     * via {@code copy()}.</li>
+     * <li>Immutable types (e.g. {@code String}, {@code Integer}, records) are
+     * returned as-is.</li>
      * </ul>
      * Requesting a concrete collection type (e.g. {@code ArrayList.class})
      * will fail with {@link ClassCastException} because the returned value is
@@ -196,7 +176,7 @@ public abstract class BaseDataContainer implements IBindable {
         if (type == null) {
             throw new IllegalArgumentException("type must not be null");
         }
-        FieldDefinition fieldDef = this.schema.getFieldDefinition(fieldName);
+        FieldDefinition fieldDef = getSchema().getFieldDefinition(fieldName);
         if (fieldDef == null) {
             throw new IllegalArgumentException("Field '" + fieldName + "' not present");
         }
@@ -204,7 +184,7 @@ public abstract class BaseDataContainer implements IBindable {
             throw new IllegalArgumentException("Field '" + fieldName + "' is not readable");
         }
 
-        AtomicReference<Object> fieldRef = this.fieldValues.get(fieldName);
+        AtomicReference<Object> fieldRef = getFieldValues().get(fieldName);
         Object rawValue = fieldRef != null ? fieldRef.get() : null;
         Object value = wrapIfMutable(rawValue);
         if ((value != null) && !type.isInstance(value)) {
@@ -235,15 +215,15 @@ public abstract class BaseDataContainer implements IBindable {
      * Wraps a raw field value to prevent in-place mutation by callers of
      * {@link #getFieldValue}. The wrapping strategy depends on the value's type:
      * <ol>
-     *   <li>{@link Copyable} — returns {@code copy()} (checked first so that a
-     *       custom type's explicit opt-in takes precedence over any collection
-     *       interface it may also implement).</li>
-     *   <li>{@link List} — unmodifiable view.</li>
-     *   <li>{@link Set} — unmodifiable view.</li>
-     *   <li>{@link Map} — unmodifiable view.</li>
-     *   <li>Other {@link Collection} — unmodifiable view.</li>
-     *   <li>Array — defensive copy (preserves component type).</li>
-     *   <li>Everything else (immutable types) — returned as-is.</li>
+     * <li>{@link Copyable} — returns {@code copy()} (checked first so that a
+     * custom type's explicit opt-in takes precedence over any collection
+     * interface it may also implement).</li>
+     * <li>{@link List} — unmodifiable view.</li>
+     * <li>{@link Set} — unmodifiable view.</li>
+     * <li>{@link Map} — unmodifiable view.</li>
+     * <li>Other {@link Collection} — unmodifiable view.</li>
+     * <li>Array — defensive copy (preserves component type).</li>
+     * <li>Everything else (immutable types) — returned as-is.</li>
      * </ol>
      * Returns {@code null} if the input is {@code null}.
      *
@@ -287,7 +267,7 @@ public abstract class BaseDataContainer implements IBindable {
      * @param value the new value for the field
      */
     protected void setFieldValue(final String fieldName, final Object value) {
-        FieldDefinition fieldDef = this.schema.getFieldDefinition(fieldName);
+        FieldDefinition fieldDef = getSchema().getFieldDefinition(fieldName);
         if (fieldDef == null) {
             throw new IllegalArgumentException("Field '" + fieldName + "' not present.");
         }
@@ -297,7 +277,7 @@ public abstract class BaseDataContainer implements IBindable {
         validateFieldType(fieldDef, value);
 
         UpdateChain chain = new UpdateChain();
-        chain.add(getID());
+        chain.add(getId());
         setFieldValue(fieldName, value, chain);
     }
 
@@ -307,13 +287,13 @@ public abstract class BaseDataContainer implements IBindable {
      * not writable by user.
      */
     private void setFieldValue(final String fieldName, final Object newValue, final UpdateChain chain) {
-        FieldDefinition fieldDef = this.schema.getFieldDefinition(fieldName);
+        FieldDefinition fieldDef = getSchema().getFieldDefinition(fieldName);
         if (fieldDef == null) {
             throw new IllegalArgumentException("Field '" + fieldName + "' not present.");
         }
 
-        AtomicReference<Object> field = this.fieldValues.get(fieldName);
-        AtomicLong timestamp = this.fieldTimestamps.get(fieldName);
+        AtomicReference<Object> field = getFieldValues().get(fieldName);
+        AtomicLong timestamp = getFieldTimestamps().get(fieldName);
         ReentrantReadWriteLock lock = this.fieldLocks.get(fieldName);
 
         if ((field == null) || (timestamp == null) || (lock == null)) {
@@ -341,7 +321,7 @@ public abstract class BaseDataContainer implements IBindable {
         }
 
         if (update) {
-            this.binder.update(this, fieldName, oldValue, newValue, chain);
+            getBinder().update(this, fieldName, oldValue, newValue, chain);
         }
     }
 
@@ -378,28 +358,29 @@ public abstract class BaseDataContainer implements IBindable {
      * @param fieldName the field name to bind
      */
     public void bindTo(final IBindable bindable, final String fieldName) {
-        this.binder.bind(bindable, fieldName, this, BaseDataContainer::onFieldChange);
+        getBinder().bind(bindable, fieldName, this, BasicDataContainer::onFieldChange);
     }
 
     /**
-     * Handle incoming field updates from other bound objects
+     * Handle incoming field updates from other bound objects.
+     *
+     * @param event the field change event containing the receiver, field name,
+     *            new value, and update chain
      */
-    private static void onFieldChange(final BaseDataContainer receiver, final String fieldName, final Object oldValue,
-            final Object newValue, final UpdateChain chain) {
-        // Check if this object is already being updated in the current chain
-        if (chain.contains(receiver.getID())) {
+    private static void onFieldChange(final FieldChangeEvent event) {
+        final BasicDataContainer receiver = event.receiver();
+        final UpdateChain chain = event.chain();
+        if (chain.contains(receiver.getId())) {
+            return;
+        }
+        if (!chain.add(receiver.getId())) {
             return;
         }
 
-        // Add this object to the update chain
-        if (!chain.add(receiver.getID())) {
-            return;
-        }
-
-        // Check if we have this field and if it's writable
-        FieldDefinition fieldDef = receiver.getSchema().getFieldDefinition(fieldName);
+        final String fieldName = event.fieldName();
+        final FieldDefinition fieldDef = receiver.getSchema().getFieldDefinition(fieldName);
         if (fieldDef != null) {
-            receiver.setFieldValue(fieldName, newValue, chain);
+            receiver.setFieldValue(fieldName, event.newValue(), chain);
         }
     }
 
@@ -410,7 +391,7 @@ public abstract class BaseDataContainer implements IBindable {
      * @return the field's timestamp, or {@code 0L} if the field is not present
      */
     long getFieldTimestamp(final String fieldName) {
-        final AtomicLong timestamp = this.fieldTimestamps.get(fieldName);
+        final AtomicLong timestamp = getFieldTimestamps().get(fieldName);
         return timestamp != null ? timestamp.get() : 0L;
     }
 

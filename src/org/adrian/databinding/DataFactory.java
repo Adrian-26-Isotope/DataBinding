@@ -18,19 +18,17 @@ public class DataFactory {
     }
 
     /**
-     * Creates a new data object from a master data source using the specified
-     * schema.
-     * This method handles safe copying of values and automatic binding setup
-     * between
+     * Creates a new data object with the specified schema from a master data source.
+     * This method handles safe copying of values and automatic binding setup between
      * the master and newly created object.
      *
      * @param <T> the type of BaseDataContainer to create
-     * @param master the master data container to copy values from
      * @param schema the schema defining the structure of the new object
+     * @param master the master data container to copy values from
      * @param builder the builder function to create the new instance
      * @return a new data object with proper initialization and binding
      */
-    public static <T extends BaseDataContainer> T createFrom(final BaseDataContainer master, final DataSchema schema,
+    public static <T extends BasicDataContainer> T createFrom(final DataSchema schema, final BasicDataContainer master,
             final DataObjectBuilder<T> builder) {
 
         // Get locks for all readable fields in the master that we need
@@ -59,7 +57,7 @@ public class DataFactory {
     /**
      * Set up bidirectional binding between master and slave based on their schemas.
      */
-    private static void setupBinding(final BaseDataContainer master, final BaseDataContainer slave) {
+    private static void setupBinding(final BasicDataContainer master, final BasicDataContainer slave) {
         // Bind slave to master only for readable fields in slave.
         List<FieldDefinition> readableFields = slave.getSchema().getReadableFields();
         for (FieldDefinition def : readableFields) {

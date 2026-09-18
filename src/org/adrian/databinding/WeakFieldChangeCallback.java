@@ -21,16 +21,16 @@ import java.util.Objects;
  * new WeakFieldChangeCallback(owner, OwnerClass::onFieldChange);
  *
  * // GOOD: Lambda function that doesn't capture the owner instance
- * new WeakFieldChangeCallback(ownerInstance, (owner, field, oldVal, newVal, chain) -> {
- *     owner.doSomething(field, oldVal, newVal, chain);
+ * new WeakFieldChangeCallback(ownerInstance, event -> {
+ *     event.receiver().doSomething(event.fieldName(), event.oldValue(), event.newValue(), event.chain());
  * });
  *
  * // BAD: Instance method reference - creates memory leak, because it creates a strong reference to owner
  * new WeakFieldChangeCallback(owner, owner::onFieldChange);
  *
  * // BAD: Lambda that captures the 'ownerInstance' variable - creates memory leak
- * new WeakFieldChangeCallback(ownerInstance, (owner, field, oldVal, newVal, chain) -> {
- *     ownerInstance.doSomething(field, oldVal, newVal, chain); // captures 'ownerInstance' from outer scope
+ * new WeakFieldChangeCallback(ownerInstance, event -> {
+ *     ownerInstance.doSomething(event.fieldName(), event.oldValue(), event.newValue(), event.chain()); // captures 'ownerInstance' from outer scope
  * });
  *
  * </pre>
@@ -41,7 +41,7 @@ import java.util.Objects;
  */
 public class WeakFieldChangeCallback {
 
-    private final WeakReference<BaseDataContainer> weakOwner;
+    private final WeakReference<BasicDataContainer> weakOwner;
     private final FieldChangeCallback callback;
 
     /**
@@ -56,9 +56,9 @@ public class WeakFieldChangeCallback {
      *            {@link WeakFieldChangeCallback} for details.
      * @throws NullPointerException if either parameter is null
      */
-    public WeakFieldChangeCallback(final BaseDataContainer callbackOwner, final FieldChangeCallback callback) {
-        this.weakOwner = new WeakReference<>(callbackOwner);
-        this.callback = Objects.requireNonNull(callback);
+    public WeakFieldChangeCallback(final BasicDataContainer callbackOwner, final FieldChangeCallback callback) {
+        this.weakOwner = new WeakReference<>(Objects.requireNonNull(callbackOwner, "callbackOwner"));
+        this.callback = Objects.requireNonNull(callback, "callback");
     }
 
     /**
@@ -77,9 +77,9 @@ public class WeakFieldChangeCallback {
      */
     public boolean execute(final String fieldName, final Object oldValue, final Object newValue,
             final UpdateChain chain) {
-        BaseDataContainer owner = this.weakOwner.get();
+        final BasicDataContainer owner = this.weakOwner.get();
         if (owner != null) {
-            this.callback.onFieldChange(owner, fieldName, oldValue, newValue, chain);
+            this.callback.onFieldChange(new FieldChangeEvent(owner, fieldName, oldValue, newValue, chain));
             return true;
         }
         return false;
