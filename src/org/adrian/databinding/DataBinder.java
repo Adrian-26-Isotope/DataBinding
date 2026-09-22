@@ -13,8 +13,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * binding, unbinding, and notifying callbacks when field values change in bound objects.
  * <p>
  * {@code DataBinder} is a <em>multiton</em>: each named instance is an independent registry owning its own binding
- * indices and {@link DataBinderCleaner} daemon thread. Named instances are created lazily via {@link #get(String)}
- * and cached for reuse.
+ * indices. All instances share a single {@link DataBinderCleaner} daemon thread. Named instances are created lazily
+ * via {@link #get(String)} and cached for reuse.
  * </p>
  * <p>
  * A <em>thread-local active instance</em> (see {@link #getActive()}, {@link #setActive(String)}) determines which
@@ -38,7 +38,6 @@ public class DataBinder {
     // reverse index for efficient receiver cleanup
     private final Map<UUID, List<BindingReference>> receiverBindings = new ConcurrentHashMap<>();
     private final String name;
-    private final DataBinderCleaner cleaner;
     private volatile boolean active = true;
 
     /** Helper class to track where a receiver's callbacks are located */
@@ -57,13 +56,12 @@ public class DataBinder {
     }
 
     /**
-     * Constructs a new {@code DataBinder} with the given name and starts its cleaner daemon thread.
+     * Constructs a new {@code DataBinder} with the given name.
      *
      * @param name the name of this instance; used for the daemon thread name and keyed in the instances map
      */
     private DataBinder(final String name) {
         this.name = name;
-        this.cleaner = new DataBinderCleaner(this, name);
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -72,7 +70,7 @@ public class DataBinder {
 
     /**
      * Returns the named {@code DataBinder} instance, creating it lazily if it does not yet exist. Each named instance
-     * is an independent registry with its own binding indices and cleaner daemon thread.
+     * is an independent registry with its own binding indices.
      *
      * @param name the name of the instance to retrieve or create
      * @return the (possibly newly-created) named instance
@@ -120,8 +118,8 @@ public class DataBinder {
     }
 
     /**
-     * Removes a named {@code DataBinder} instance and shuts down its cleaner daemon thread. A new instance with the
-     * same name can later be created via {@link #get(String)}.
+     * Removes a named {@code DataBinder} instance and clears its binding registrations from the shared cleaner. A new
+     * instance with the same name can later be created via {@link #get(String)}.
      *
      * @param name the name of the instance to remove
      */
@@ -133,27 +131,12 @@ public class DataBinder {
     }
 
     /**
-     * Shuts down this instance: marks it inactive, clears all binding indices, and stops the cleaner daemon. After
-     * this call, {@link #bind} and {@link #update} throw {@link IllegalStateException}.
+     * Shuts down this instance: marks it inactive, clears all binding indices, and removes its entries from the
+     * shared cleaner. After this call, {@link #bind} and {@link #update} throw {@link IllegalStateException}.
      */
     private void shutdownInstance() {
         this.active = false;
-        this.transmitterBindings.clear();
-        this.receiverBindings.clear();
-        this.cleaner.shutdown();
-    }
-
-    /**
-     * Fail-stop this instance without re-entering the cleaner. Invoked by {@link DataBinderCleaner} when its daemon
-     * loop is dying (unrecoverable {@link Error} or restart cap exceeded). Marks the binder inactive and clears all
-     * binding indices so subsequent {@link #bind}/{@link #update} calls fail fast. Does <em>not</em> call
-     * {@link DataBinderCleaner#shutdown()} — the cleaner is the caller and is already exiting.
-     */
-    void failStop() {
-        this.active = false;
-        this.transmitterBindings.clear();
-        this.receiverBindings.clear();
-        instances.remove(this.name, this);
+        clearAll();
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -193,8 +176,8 @@ public class DataBinder {
         this.receiverBindings.computeIfAbsent(receiver.getId(), _ -> new CopyOnWriteArrayList<>()).add(bindingRef);
 
         // register for cleanup to avoid memory leaks
-        this.cleaner.registerTransmitter(transmitter);
-        this.cleaner.registerReceiver(receiver);
+        DataBinderCleaner.getInstance().registerTransmitter(this, transmitter);
+        DataBinderCleaner.getInstance().registerReceiver(this, receiver);
     }
 
     /**
@@ -318,7 +301,16 @@ public class DataBinder {
      *
      * @return the number of registered phantom references
      */
-    public static int getMonitoredContainerCount() {
-        return getActive().cleaner.getMonitoredContainerCount();
+    public static long getMonitoredContainerCount() {
+        return DataBinderCleaner.getInstance().getMonitoredCountFor(getActive());
+    }
+
+    /**
+     * Clears all binding registrations for this instance. Intended for test setup/teardown only.
+     */
+    void clearAll() {
+        this.transmitterBindings.clear();
+        this.receiverBindings.clear();
+        DataBinderCleaner.getInstance().clearFor(this);
     }
 }

@@ -8,210 +8,160 @@ import java.util.concurrent.ConcurrentMap;
 
 /**
  * Handles automatic cleanup of {@link DataBinder} entries when {@link IBindable} objects are garbage collected. Uses
- * PhantomReference to detect when objects become unreachable and removes their UUID mappings from the owning
+ * {@link PhantomReference} to detect when objects become unreachable and removes their UUID mappings from the owning
  * {@link DataBinder} cache.
  * <p>
- * Each instance is owned by a single {@link DataBinder} and holds a back-reference so it can invoke the owner's cleanup
- * methods when phantom references are enqueued. The background daemon thread is started when the cleaner is constructed
- * (i.e. when the owning {@link DataBinder} is first created) and can be stopped via {@link #shutdown()}.
+ * This is a <em>shared singleton</em>: one instance backs all {@link DataBinder} instances in the JVM. A single
+ * platform daemon thread blocks on a shared {@link ReferenceQueue}, so the number of cleaner threads is constant
+ * regardless of how many named {@link DataBinder} instances exist.
  * </p>
  */
 class DataBinderCleaner {
 
-    private static final long POLL_TIMEOUT_MS = 1000L;
-    private static final System.Logger LOGGER = System.getLogger(MultiLockManager.class.getName());
+    private static final System.Logger LOGGER = System.getLogger(DataBinderCleaner.class.getName());
 
-    private final DataBinder owner;
-    private volatile boolean shutdownRequested;
-    private final RestartGuard restartGuard = new RestartGuard();
-    private final ReferenceQueue<IBindable> referenceQueue = new ReferenceQueue<>();
-    private final ConcurrentMap<PhantomReference<IBindable>, UUID> transmitterMap = new ConcurrentHashMap<>();
-    private final ConcurrentMap<PhantomReference<IBindable>, UUID> receiverMap = new ConcurrentHashMap<>();
+    private static final DataBinderCleaner INSTANCE = new DataBinderCleaner();
 
     /**
-     * Constructs a cleaner owned by the specified {@link DataBinder} and starts the background daemon thread.
+     * Associates a {@link PhantomReference} with the information needed to clean up the corresponding binding entries
+     * in the owning {@link DataBinder}.
      *
-     * @param owner the {@link DataBinder} that owns this cleaner; used for cleanup callbacks
-     * @param name a descriptive name appended to the daemon thread name for debugging
+     * @param owner the {@link DataBinder} that owns the binding
+     * @param id the UUID of the garbage-collected container
+     * @param transmitter {@code true} if this entry is a transmitter registration; {@code false} for a receiver
      */
-    DataBinderCleaner(final DataBinder owner, final String name) {
-        this.owner = owner;
-        Thread.ofVirtual().name("DataBinderCleaner-" + name).start(this::cleanupLoop);
+    private record CleanupEntry(DataBinder owner, UUID id, boolean transmitter) {}
+
+    private final ReferenceQueue<IBindable> referenceQueue = new ReferenceQueue<>();
+    private final ConcurrentMap<PhantomReference<IBindable>, CleanupEntry> registry = new ConcurrentHashMap<>();
+
+    /**
+     * @return the shared singleton {@link DataBinderCleaner} instance
+     */
+    static DataBinderCleaner getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * Constructs the shared cleaner and starts the background platform daemon thread. Private to enforce singleton
+     * access via {@link #getInstance()}.
+     */
+    private DataBinderCleaner() {
+        Thread.ofPlatform().daemon().name("DataBinderCleaner").start(this::cleanupLoop);
     }
 
     /**
      * Registers an {@link IBindable} receiver for automatic cleanup when it's garbage collected.
      *
+     * @param owner the {@link DataBinder} that owns this binding
      * @param receiver the container to monitor for garbage collection
      */
-    void registerReceiver(final IBindable receiver) {
+    void registerReceiver(final DataBinder owner, final IBindable receiver) {
         UUID id = receiver.getId();
         PhantomReference<IBindable> phantomRef = new PhantomReference<>(receiver, this.referenceQueue);
-        this.receiverMap.put(phantomRef, id);
+        this.registry.put(phantomRef, new CleanupEntry(owner, id, false));
     }
 
     /**
      * Registers an {@link IBindable} transmitter for automatic cleanup when it's garbage collected.
      *
-     * @param container the container to monitor for garbage collection
+     * @param owner the {@link DataBinder} that owns this binding
+     * @param transmitter the container to monitor for garbage collection
      */
-    void registerTransmitter(final IBindable container) {
-        UUID id = container.getId();
-        PhantomReference<IBindable> phantomRef = new PhantomReference<>(container, this.referenceQueue);
-        this.transmitterMap.put(phantomRef, id);
+    void registerTransmitter(final DataBinder owner, final IBindable transmitter) {
+        UUID id = transmitter.getId();
+        PhantomReference<IBindable> phantomRef = new PhantomReference<>(transmitter, this.referenceQueue);
+        this.registry.put(phantomRef, new CleanupEntry(owner, id, true));
     }
 
     /**
      * Main cleanup loop that runs in a background daemon thread. Continuously monitors for garbage collected objects
      * and cleans up their bindings.
      * <p>
-     * Any {@link Throwable} thrown from the loop body is handled uniformly: the loop re-arms after a short backoff, up
-     * to {@code RestartGuard.MAX_RESTARTS} times within a sliding window. If the cap is exceeded the owning
-     * {@link DataBinder} is fail-stopped (see {@link DataBinder#failStop()}), the exception is logged, and the loop
-     * exits. Shutdown is driven by the {@link #shutdownRequested} flag, polled via
-     * {@link ReferenceQueue#remove(long)}; the loop does not rely on {@link Thread#interrupt()}.
+     * The loop blocks on the shared {@link ReferenceQueue} via {@link ReferenceQueue#remove()}, waking only when a
+     * phantom reference is enqueued. Any {@link Throwable} thrown from the loop body is logged and the loop continues
+     * after a short backoff — the shared cleaner never exits (except on JVM shutdown) so that all {@link DataBinder}
+     * instances retain cleanup coverage.
      * </p>
      */
     private void cleanupLoop() {
-        while (!this.shutdownRequested) {
+        while (true) {
             try {
                 @SuppressWarnings("unchecked")
-                PhantomReference<IBindable> phantomRef =
-                        (PhantomReference<IBindable>) this.referenceQueue.remove(POLL_TIMEOUT_MS);
+                PhantomReference<IBindable> phantomRef = (PhantomReference<IBindable>) this.referenceQueue.remove();
                 if (phantomRef != null) {
-                    processPhantomReference(phantomRef);
+                    processReference(phantomRef);
                 }
-                this.restartGuard.decay();
+            }
+            catch (InterruptedException e) {
+                // spurious wake-up; continue
             }
             catch (Throwable t) {
-                if (!handleFailure(t)) {
-                    break;
+                LOGGER.log(System.Logger.Level.ERROR, "Error in DataBinderCleaner thread: " + t.getMessage());
+                try {
+                    Thread.sleep(500L);
+                }
+                catch (InterruptedException ie) {
+                    // interrupted during backoff; continue
                 }
             }
         }
     }
 
     /**
-     * Handles any {@link Throwable} thrown from the loop body. Re-arms after a short backoff if the restart cap has
-     * not been exceeded; otherwise logs the failure, fail-stops the owning {@link DataBinder}, and signals exit.
+     * Processes a single enqueued phantom reference by looking up its {@link CleanupEntry} and dispatching cleanup to
+     * the owning {@link DataBinder}.
      *
-     * @param t the throwable thrown by the loop body
-     * @return {@code true} to continue the loop; {@code false} to exit (shutdown or fail-stop)
+     * @param phantomRef the enqueued phantom reference to process
      */
-    private boolean handleFailure(final Throwable t) {
-        if (this.shutdownRequested) {
-            return false;
+    private void processReference(final PhantomReference<IBindable> phantomRef) {
+        CleanupEntry entry = this.registry.remove(phantomRef);
+        if (entry != null) {
+            if (entry.transmitter()) {
+                entry.owner().cleanupTransmitter(entry.id());
+            }
+            else {
+                entry.owner().cleanupReceiver(entry.id());
+            }
         }
-        if (!this.restartGuard.allowRestart()) {
-            LOGGER.log(System.Logger.Level.ERROR, "Error in DataBinderCleaner thread: " + t.getMessage());
-            failStopBestEffort();
-            return false;
-        }
-        this.restartGuard.sleepBackoff();
-        return true;
-    }
-
-    /**
-     * Best-effort invocation of {@link DataBinder#failStop()}, swallowing any secondary exception. Intended for the
-     * {@code catch (Error)} path where re-throwing or propagating secondary failures is undesirable.
-     */
-    private void failStopBestEffort() {
-        try {
-            this.owner.failStop();
-        }
-        catch (Exception ignore) {
-            // best-effort under Error
-        }
-    }
-
-    private void processPhantomReference(final PhantomReference<IBindable> phantomRef) {
-        UUID transmitterID = this.transmitterMap.remove(phantomRef);
-        if (transmitterID != null) {
-            this.owner.cleanupTransmitter(transmitterID);
-        }
-
-        UUID receiverID = this.receiverMap.remove(phantomRef);
-        if (receiverID != null) {
-            this.owner.cleanupReceiver(receiverID);
-        }
-
         phantomRef.clear();
     }
 
     /**
-     * Gets the number of containers currently being monitored for garbage collection. Useful for testing and monitoring
-     * purposes.
+     * Removes all registry entries for the specified owning {@link DataBinder}. Used during {@link DataBinder} shutdown
+     * and test reset to ensure no stale phantom references remain for the given owner.
      *
-     * @return the number of registered phantom references
+     * @param owner the {@link DataBinder} whose entries should be removed
      */
-    int getMonitoredContainerCount() {
-        return this.transmitterMap.size() + this.receiverMap.size();
+    void clearFor(final DataBinder owner) {
+        this.registry.entrySet().removeIf(entry -> entry.getValue().owner() == owner);
     }
 
     /**
-     * Requests the background daemon thread to exit its cleanup loop. Sets the {@code shutdownRequested} flag; the
-     * loop notices within at most {@value #POLL_TIMEOUT_MS} ms via its {@link ReferenceQueue#remove(long)} timeout.
-     * This
-     * method does <em>not</em> call {@link Thread#interrupt()}, so any {@link InterruptedException} observed by the
-     * loop is, by construction, accidental (and triggers the restart path). After shutdown, phantom references will no
-     * longer be processed automatically; tests may use {@code TestDataBinder.drainOnce()} for manual processing.
+     * Gets the number of phantom references currently registered for the specified owning {@link DataBinder}. Useful
+     * for testing and monitoring purposes.
+     *
+     * @param owner the {@link DataBinder} whose monitored count is requested
+     * @return the number of registered phantom references for the given owner
      */
-    void shutdown() {
-        this.shutdownRequested = true;
+    long getMonitoredCountFor(final DataBinder owner) {
+        return this.registry.values().stream().filter(entry -> entry.owner() == owner).count();
     }
 
     /**
-     * Restart-rate limiter for the cleanup loop. Caps the number of accidental-interrupt re-arms within a sliding
-     * time window to prevent infinite respawn thrash. Mutated only by the single cleaner thread, so no synchronization
-     * is required.
+     * Drains all currently-enqueued phantom references synchronously, processing each one the same way the background
+     * daemon does. Allows tests to flush cleanup without relying on the daemon thread's latency.
+     *
+     * @return the number of phantom references processed
      */
-    private static final class RestartGuard {
-
-        private static final int MAX_RESTARTS = 5;
-        private static final long RESTART_WINDOW_MS = 60_000L;
-        private static final long BACKOFF_MS = 500L;
-
-        private int count = 0;
-        private long windowStartMs = 0L;
-
-        /**
-         * Records a restart attempt and enforces the cap within the current sliding window.
-         *
-         * @return {@code true} if the restart is allowed; {@code false} if the cap was exceeded within the window
-         */
-        boolean allowRestart() {
-            long now = System.currentTimeMillis();
-            if ((now - this.windowStartMs) > RESTART_WINDOW_MS) {
-                this.windowStartMs = now;
-                this.count = 1;
-            }
-            else {
-                this.count++;
-            }
-            return this.count <= MAX_RESTARTS;
+    @SuppressWarnings("unchecked")
+    int drainQueue() {
+        int count = 0;
+        PhantomReference<IBindable> phantomRef;
+        while ((phantomRef = (PhantomReference<IBindable>) this.referenceQueue.poll()) != null) {
+            processReference(phantomRef);
+            count++;
         }
-
-        /**
-         * Resets the counter if the sliding window has elapsed, so a transient burst of failures early on does not
-         * permanently exhaust the cap.
-         */
-        void decay() {
-            if ((this.count > 0) && ((System.currentTimeMillis() - this.windowStartMs) > RESTART_WINDOW_MS)) {
-                this.count = 0;
-            }
-        }
-
-        /**
-         * Sleeps for the backoff duration. Interrupts during backoff are swallowed; the caller's loop condition
-         * re-checks the shutdown flag on the next iteration.
-         */
-        void sleepBackoff() {
-            try {
-                Thread.sleep(BACKOFF_MS);
-            }
-            catch (InterruptedException e) {
-                // swallowed; loop re-checks shutdown flag
-            }
-        }
+        return count;
     }
 }

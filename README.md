@@ -20,7 +20,7 @@ This framework provides a declarative approach to data binding where you can:
 - **Conflict Resolution**: Timestamp-based resolution for concurrent updates
 - **Flexible Access Control**: Per-field read-only or read-write access
 - **Memory Leak Prevention**: Automatic cleanup of bindings when objects are garbage collected
-- **Multiple Registries**: Named [`DataBinder`](src/org/adrian/databinding/DataBinder.java) instances allow independent binding graphs in a single JVM, each with its own cleanup daemon
+- **Multiple Registries**: Named [`DataBinder`](src/org/adrian/databinding/DataBinder.java) instances allow independent binding graphs in a single JVM, sharing a single cleanup daemon
 
 ## Table of Contents
 
@@ -167,7 +167,7 @@ try (DataBinder.Scope scope = DataBinder.setActive("session-2")) {
 } // "default" restored automatically
 ```
 
-Scopes nesting: closing an inner scope restores the outer scope's active name, not necessarily "default". Slaves created via `DataFactory.createFrom` always inherit the master's registry, so a binding graph stays within one `DataBinder` regardless of what is active at slave-creation time. Named instances (and their cleanup daemon threads) are created lazily on first use and can be shut down with `DataBinder.remove("session-1")`.
+Scopes nesting: closing an inner scope restores the outer scope's active name, not necessarily "default". Slaves created via `DataFactory.createFrom` always inherit the master's registry, so a binding graph stays within one `DataBinder` regardless of what is active at slave-creation time. Named instances are created lazily on first use and can be shut down with `DataBinder.remove("session-1")`, which clears their entries from the shared cleaner.
 
 ### Manual Binding with `bindTo` and `bind`
 
@@ -357,7 +357,7 @@ transmitterMap:  PhantomReference<IBindable> → UUID
 receiverMap:     PhantomReference<IBindable> → UUID
 ```
 
-[`DataBinderCleaner`](src/org/adrian/databinding/DataBinderCleaner.java) runs a virtual daemon thread that polls `referenceQueue.remove(timeout)` (1 s). When the GC collects an `IBindable` and enqueues its phantom reference, the thread wakes up, looks up the UUID from the side map, and calls `DataBinder.cleanupTransmitter()` or `DataBinder.cleanupReceiver()` to remove the corresponding entries from the indices. Because phantom refs are enqueued *after* finalization, this cleanup runs only when the object is truly unreachable — there is no risk of operating on a half-collected object.
+[`DataBinderCleaner`](src/org/adrian/databinding/DataBinderCleaner.java) is a shared singleton that runs a single platform daemon thread blocking on `referenceQueue.remove()` (no timeout). When the GC collects an `IBindable` and enqueues its phantom reference, the thread wakes up, looks up the owning `DataBinder` and UUID from a side map, and calls `DataBinder.cleanupTransmitter()` or `DataBinder.cleanupReceiver()` to remove the corresponding entries from the indices. Because phantom refs are enqueued *after* finalization, this cleanup runs only when the object is truly unreachable — there is no risk of operating on a half-collected object.
 
 After processing, `phantomRef.clear()` is called explicitly because — unlike weak/soft references — phantom references are **not** auto-cleared by the GC. Without `clear()`, the `PhantomReference` object would remain as a key in the side map indefinitely.
 
@@ -390,7 +390,7 @@ Layer 1 is **lazy** — it only runs when a write happens, so it handles the com
 - `getFieldValue` wraps mutable values (unmodifiable views for collections, defensive copies for arrays and `Copyable` types) to prevent in-place mutation from bypassing the propagation contract. Always use `setFieldValue` with a new value to change a field. Prefer immutable field types; use `Copyable<T>` only when mutability is unavoidable.
 - The public setter enforces `isWritable()`; the private setter (propagation path) does not. Don't "fix" this asymmetry — it's how `READ_ONLY` fields receive master updates.
 - `DataBinder` is a named multiton. New containers capture the thread-local active instance (`DataBinder.getActive()`) at construction into a `final` field; slaves inherit the master's instance. Use `DataBinder.setActive(name)` (returns an `AutoCloseable` scope) to scope a binding graph, or the `(schema, binder)` constructor for explicit injection.
-- `DataBinderCleaner` is a package-private, instance-based component owned by each `DataBinder`. Its daemon thread starts lazily when the `DataBinder` instance is first created (via `get`/`getActive`). The loop polls a `ReferenceQueue` with a timeout so it can self-check a shutdown flag (no `Thread.interrupt()`). Any `Throwable` from the loop body triggers a capped restart (5 per 60 s sliding window, with backoff); if the cap is exceeded the owning `DataBinder` is fail-stopped (`bind`/`update` then throw `IllegalStateException`). Tests that depend on cleanup (e.g. `DataBinderCleanupTest`) force GC and sleep, so they can be timing-sensitive.
+- `DataBinderCleaner` is a package-private shared singleton. A single platform daemon thread starts when the class is first loaded and runs for the JVM lifetime, blocking on `referenceQueue.remove()` (no timeout). Any `Throwable` from the loop body is logged and the loop continues after a short backoff — the shared cleaner never exits, so all `DataBinder` instances retain cleanup coverage. Tests that depend on cleanup (e.g. `DataBinderCleanupTest`) force GC and sleep, so they can be timing-sensitive.
 - Field lookup in `DataSchema` is O(1) (`HashMap`-backed). Fine for schemas of any size.
 
 ## Example
