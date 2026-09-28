@@ -2,6 +2,8 @@ package org.adrian.databinding;
 
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import org.adrian.databinding.core.FieldDefinition;
+
 /**
  * Formats {@link BasicDataContainer} field state as a human-readable string for debugging.
  */

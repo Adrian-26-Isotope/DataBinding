@@ -1,12 +1,13 @@
-package org.adrian.databinding;
+package org.adrian.databinding.core;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Defines the schema for a data container with field definitions.
@@ -15,7 +16,7 @@ import java.util.Map;
  */
 public class DataSchema {
 
-    private final Map<String, FieldDefinition> fieldDefinitionMap = new HashMap<>();
+    private final Map<String, FieldDefinition> fieldDefinitionMap = new LinkedHashMap<>();
 
     /**
      * Creates a new DataSchema with the specified field definitions.
@@ -32,7 +33,9 @@ public class DataSchema {
      * @param fieldDefinitions list of field definitions
      */
     public DataSchema(final List<FieldDefinition> fieldDefinitions) {
+        Objects.requireNonNull(fieldDefinitions, "fieldDefinitions");
         for (FieldDefinition fd : fieldDefinitions) {
+            Objects.requireNonNull(fd, "fieldDefinition element");
             String fieldName = fd.getFieldName();
             if (this.fieldDefinitionMap.containsKey(fieldName)) {
                 throw new IllegalArgumentException("Duplicate field name: " + fieldName);

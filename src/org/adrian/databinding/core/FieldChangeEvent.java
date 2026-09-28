@@ -1,4 +1,4 @@
-package org.adrian.databinding;
+package org.adrian.databinding.core;
 
 /**
  * Immutable snapshot of a field change event, delivered to
@@ -11,14 +11,15 @@ package org.adrian.databinding;
  * as new fields are added.
  * </p>
  *
- * @param receiver the data container that shall react on the field change
+ * @param <T> the type of the bindable receiver
+ * @param receiver the bindable object that shall react on the field change
  * @param fieldName the name of the field that changed
  * @param oldValue the previous value of the field (may be {@code null})
  * @param newValue the new value of the field (may be {@code null})
  * @param chain the update chain to prevent infinite loops
  */
-public record FieldChangeEvent(
-        BasicDataContainer receiver,
+public record FieldChangeEvent<T extends IBindable>(
+        T receiver,
         String fieldName,
         Object oldValue,
         Object newValue,

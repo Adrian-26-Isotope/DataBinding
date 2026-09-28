@@ -5,6 +5,10 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.adrian.databinding.core.DataBinder;
+import org.adrian.databinding.core.DataSchema;
+import org.adrian.databinding.core.FieldDefinition;
+
 /**
  * Convenience base class for 'slave' data containers that inherit field values
  * from a master container. The slave inherits the master's {@link DataBinder}
@@ -12,7 +16,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * in the master's schema) are set from the slave's own initial values; shared
  * fields are copied from the master.
  */
-public  class BasicSlaveContainer extends BasicDataContainer {
+public class BasicSlaveContainer extends BasicDataContainer {
 
     /**
      * Constructor that automatically copies field values from a master container.
@@ -72,6 +76,7 @@ public  class BasicSlaveContainer extends BasicDataContainer {
                 continue;
             }
             Object value = masterField.get();
+            validateFieldType(fieldDef, value);
             AtomicReference<Object> field = getFieldValues().get(fieldName);
             AtomicLong timestamp = getFieldTimestamps().get(fieldName);
             AtomicLong masterTimestamp = master.getFieldTimestamps().get(fieldName);

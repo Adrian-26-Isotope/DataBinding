@@ -1,11 +1,11 @@
-package org.adrian.databinding;
+package org.adrian.databinding.core;
 
 import java.lang.ref.WeakReference;
 import java.util.Objects;
 
 /**
  * A wrapper for {@link FieldChangeCallback}s that holds a weak reference to the
- * owner object.
+ * bindable object.
  * This class prevents memory leaks by allowing the owner object to be garbage
  * collected even if the callback is still referenced in the {@link DataBinder}
  * cache.
@@ -39,16 +39,16 @@ import java.util.Objects;
  * garbage collected).
  * </p>
  */
-public class WeakFieldChangeCallback {
+public class WeakFieldChangeCallback<T extends IBindable> {
 
-    private final WeakReference<BasicDataContainer> weakOwner;
-    private final FieldChangeCallback callback;
+    private final WeakReference<T> weakOwner;
+    private final FieldChangeCallback<T> callback;
 
     /**
      * Constructs a new WeakFieldChangeCallback with the specified owner and
      * callback.
      *
-     * @param callbackOwner the object that owns this callback; held as a weak
+     * @param callbackOwner the bindable object that owns this callback; held as a weak
      *            reference to prevent memory leaks
      * @param callback the actual callback implementation to execute when a
      *            field changes. <strong>IMPORTANT</strong> this
@@ -56,7 +56,7 @@ public class WeakFieldChangeCallback {
      *            {@link WeakFieldChangeCallback} for details.
      * @throws NullPointerException if either parameter is null
      */
-    public WeakFieldChangeCallback(final BasicDataContainer callbackOwner, final FieldChangeCallback callback) {
+    public WeakFieldChangeCallback(final T callbackOwner, final FieldChangeCallback<T> callback) {
         this.weakOwner = new WeakReference<>(Objects.requireNonNull(callbackOwner, "callbackOwner"));
         this.callback = Objects.requireNonNull(callback, "callback");
     }
@@ -77,9 +77,9 @@ public class WeakFieldChangeCallback {
      */
     public boolean execute(final String fieldName, final Object oldValue, final Object newValue,
             final UpdateChain chain) {
-        final BasicDataContainer owner = this.weakOwner.get();
+        final T owner = this.weakOwner.get();
         if (owner != null) {
-            this.callback.onFieldChange(new FieldChangeEvent(owner, fieldName, oldValue, newValue, chain));
+            this.callback.onFieldChange(new FieldChangeEvent<>(owner, fieldName, oldValue, newValue, chain));
             return true;
         }
         return false;

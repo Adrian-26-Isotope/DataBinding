@@ -5,6 +5,9 @@ import java.util.Objects;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import org.adrian.databinding.core.DataSchema;
+import org.adrian.databinding.core.FieldDefinition;
+
 /**
  * Factory for creating data objects with proper initialization and binding.
  * Handles safe copying of values from master objects and automatic binding
@@ -22,7 +25,7 @@ public class DataFactory {
      * This method handles safe copying of values and automatic binding setup between
      * the master and newly created object.
      *
-     * @param <T> the type of BaseDataContainer to create
+     * @param <T> the type of BasicDataContainer to create
      * @param schema the schema defining the structure of the new object
      * @param master the master data container to copy values from
      * @param builder the builder function to create the new instance
@@ -30,6 +33,10 @@ public class DataFactory {
      */
     public static <T extends BasicDataContainer> T createFrom(final DataSchema schema, final BasicDataContainer master,
             final DataObjectBuilder<T> builder) {
+
+        Objects.requireNonNull(schema, "schema");
+        Objects.requireNonNull(master, "master");
+        Objects.requireNonNull(builder, "builder");
 
         // Get locks for all readable fields in the master that we need
         List<FieldDefinition> readableFields = schema.getReadableFields();
@@ -58,16 +65,20 @@ public class DataFactory {
      * Set up bidirectional binding between master and slave based on their schemas.
      */
     private static void setupBinding(final BasicDataContainer master, final BasicDataContainer slave) {
-        // Bind slave to master only for readable fields in slave.
-        List<FieldDefinition> readableFields = slave.getSchema().getReadableFields();
-        for (FieldDefinition def : readableFields) {
-            slave.bindTo(master, def.getFieldName());
+        // Bind slave to master for readable fields present in both schemas.
+        for (FieldDefinition def : slave.getSchema().getReadableFields()) {
+            String fieldName = def.getFieldName();
+            if (master.getSchema().getFieldDefinition(fieldName) != null) {
+                slave.bindTo(master, fieldName);
+            }
         }
 
-        // Bind master to slave only for writable fields in slave.
-        List<FieldDefinition> writableFields = slave.getSchema().getWritableFields();
-        for (FieldDefinition def : writableFields) {
-            master.bindTo(slave, def.getFieldName());
+        // Bind master to slave for writable fields present in both schemas.
+        for (FieldDefinition def : slave.getSchema().getWritableFields()) {
+            String fieldName = def.getFieldName();
+            if (master.getSchema().getFieldDefinition(fieldName) != null) {
+                master.bindTo(slave, fieldName);
+            }
         }
     }
 

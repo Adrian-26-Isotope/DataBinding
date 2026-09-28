@@ -1,18 +1,20 @@
 package org.adrian.databinding;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import org.adrian.databinding.core.TestDataBinder;
 import org.adrian.databinding.data.TestMasterData;
 import org.adrian.databinding.data.TestSlaveData1;
 import org.adrian.databinding.data.TestSlaveData2;
 import org.adrian.databinding.data.TestSlaveData3;
-import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-class BaseDataContainerTest {
+class BasicDataContainerTest {
 
     private TestMasterData master;
     private TestSlaveData1 slave1;
@@ -27,9 +29,9 @@ class BaseDataContainerTest {
         this.slave3 = DataFactory.createFrom(TestSlaveData3.SCHEMA, this.slave1, TestSlaveData3::new);
     }
 
-    @AfterAll
-    static void tearDown() {
-        // Reset the DataBinder after all tests to avoid interference with other tests
+    @AfterEach
+    void tearDown() {
+        // Reset the DataBinder after each test to avoid interference with other tests
         TestDataBinder.reset();
     }
 
@@ -99,12 +101,12 @@ class BaseDataContainerTest {
         assertNotNull(this.slave3.getId());
 
         // IDs should be different
-        assert !this.master.getId().equals(this.slave1.getId());
-        assert !this.master.getId().equals(this.slave2.getId());
-        assert !this.master.getId().equals(this.slave3.getId());
-        assert !this.slave1.getId().equals(this.slave2.getId());
-        assert !this.slave1.getId().equals(this.slave3.getId());
-        assert !this.slave2.getId().equals(this.slave3.getId());
+        assertNotEquals(this.master.getId(), this.slave1.getId());
+        assertNotEquals(this.master.getId(), this.slave2.getId());
+        assertNotEquals(this.master.getId(), this.slave3.getId());
+        assertNotEquals(this.slave1.getId(), this.slave2.getId());
+        assertNotEquals(this.slave1.getId(), this.slave3.getId());
+        assertNotEquals(this.slave2.getId(), this.slave3.getId());
     }
 
     @Test

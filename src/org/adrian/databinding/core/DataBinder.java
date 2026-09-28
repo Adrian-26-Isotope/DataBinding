@@ -1,12 +1,14 @@
-package org.adrian.databinding;
+package org.adrian.databinding.core;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 
 /**
  * Central registry for managing data binding relationships between objects. Provides thread-safe operations for
@@ -18,7 +20,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * </p>
  * <p>
  * A <em>thread-local active instance</em> (see {@link #getActive()}, {@link #setActive(String)}) determines which
- * registry newly-constructed {@link BasicDataContainer}s bind into. {@link BasicDataContainer} captures the active
+ * registry newly-constructed {@link IBindable}s bind into. {@link IBindable} captures the active
  * instance at construction time into a {@code final} field, so no runtime dependency on global state remains after
  * construction. The active instance defaults to {@code "default"} when no name has been set. {@link #setActive(String)}
  * returns a {@link Scope} ( {@code AutoCloseable}) that restores the previous active name when closed.
@@ -34,7 +36,7 @@ public class DataBinder {
     private static final ConcurrentMap<String, DataBinder> instances = new ConcurrentHashMap<>();
 
     // main data binding cache
-    private final Map<UUID, Map<String, List<WeakFieldChangeCallback>>> transmitterBindings = new ConcurrentHashMap<>();
+    private final Map<UUID, Map<String, List<WeakFieldChangeCallback<?>>>> transmitterBindings = new ConcurrentHashMap<>();
     // reverse index for efficient receiver cleanup
     private final Map<UUID, List<BindingReference>> receiverBindings = new ConcurrentHashMap<>();
     private final String name;
@@ -45,10 +47,10 @@ public class DataBinder {
 
         private final UUID transmitterId;
         private final String transmitterFieldName;
-        private final WeakFieldChangeCallback callback;
+        private final WeakFieldChangeCallback<?> callback;
 
         private BindingReference(final UUID transmitterId, final String fieldName,
-                final WeakFieldChangeCallback callback) {
+                final WeakFieldChangeCallback<?> callback) {
             this.transmitterId = transmitterId;
             this.transmitterFieldName = fieldName;
             this.callback = callback;
@@ -81,7 +83,7 @@ public class DataBinder {
 
     /**
      * Returns the active {@code DataBinder} instance for the current thread, creating it lazily if needed. The active
-     * instance is thread-local and defaults to {@code "default"}. It is captured by {@link BasicDataContainer} at
+     * instance is thread-local and defaults to {@code "default"}. It is captured by {@link IBindable} at
      * construction time, so calling this method later returns whatever is currently active for the calling thread.
      *
      * @return the active instance for the current thread
@@ -92,7 +94,7 @@ public class DataBinder {
 
     /**
      * Sets the active {@code DataBinder} name for the current thread and returns a {@link Scope} that restores the
-     * previous active name when closed. Subsequent calls to {@link #getActive()} (and thus {@link BasicDataContainer}
+     * previous active name when closed. Subsequent calls to {@link #getActive()} (and thus {@link IBindable}
      * construction) on this thread will use the named instance until the returned scope is closed.
      * <p>
      * Typical usage with a try-with-resources statement:
@@ -114,7 +116,15 @@ public class DataBinder {
     public static Scope setActive(final String name) {
         String previous = activeName.get();
         activeName.set(name);
-        return new Scope(previous);
+        Consumer<String> restoreAction = previousName -> {
+            if (DEFAULT_INSTANCE.equals(previousName)) {
+                activeName.remove();
+            }
+            else {
+                activeName.set(previousName);
+            }
+        };
+        return new Scope(previous, restoreAction);
     }
 
     /**
@@ -134,7 +144,7 @@ public class DataBinder {
      * Shuts down this instance: marks it inactive, clears all binding indices, and removes its entries from the
      * shared cleaner. After this call, {@link #bind} and {@link #update} throw {@link IllegalStateException}.
      */
-    private void shutdownInstance() {
+    private synchronized void shutdownInstance() {
         this.active = false;
         clearAll();
     }
@@ -146,6 +156,7 @@ public class DataBinder {
     /**
      * Binds a callback to a specific field on the specified transmitter object.
      *
+     * @param <T> the type of the receiver
      * @param transmitter the source object to monitor
      * @param fieldName the specific field name to monitor
      * @param receiver the instance receiving field updates from the transmitter
@@ -153,19 +164,19 @@ public class DataBinder {
      *            callback must not capture the receiver instance. See {@link WeakFieldChangeCallback} for
      *            details.
      */
-    public void bind(final IBindable transmitter, final String fieldName, final BasicDataContainer receiver,
-            final FieldChangeCallback callback) {
+    public synchronized <T extends IBindable> void bind(final IBindable transmitter, final String fieldName, final T receiver,
+            final FieldChangeCallback<T> callback) {
         if ((transmitter == null) || (fieldName == null) || (receiver == null) || (callback == null)) {
             throw new IllegalArgumentException("no argument must not be null");
         }
         if (!this.active) {
             throw new IllegalStateException("DataBinder '" + this.name + "' has been removed");
         }
-        WeakFieldChangeCallback weakCallback = new WeakFieldChangeCallback(receiver, callback);
+        WeakFieldChangeCallback<T> weakCallback = new WeakFieldChangeCallback<>(receiver, callback);
 
         // add to main bindings cache
         this.transmitterBindings.compute(transmitter.getId(), (_, fieldsCallbacks) -> {
-            Map<String, List<WeakFieldChangeCallback>> map =
+            Map<String, List<WeakFieldChangeCallback<?>>> map =
                     (fieldsCallbacks != null) ? fieldsCallbacks : new ConcurrentHashMap<>();
             map.computeIfAbsent(fieldName, _ -> new CopyOnWriteArrayList<>()).add(weakCallback);
             return map;
@@ -181,7 +192,7 @@ public class DataBinder {
     }
 
     /**
-     * Removes all bindings for a garbage collected {@link BasicDataContainer}. This method is called automatically by
+     * Removes all bindings for a garbage collected {@link IBindable}. This method is called automatically by
      * the {@link DataBinderCleaner}.
      *
      * @param containerID the UUID of the garbage collected container
@@ -200,7 +211,7 @@ public class DataBinder {
         List<BindingReference> receiverRefs = this.receiverBindings.remove(receiverId);
         if (receiverRefs != null) {
             for (BindingReference ref : receiverRefs) {
-                List<WeakFieldChangeCallback> callbacks =
+                List<WeakFieldChangeCallback<?>> callbacks =
                         getSpecificCallbacks(ref.transmitterId, ref.transmitterFieldName);
                 callbacks.remove(ref.callback);
                 cleanup(ref.transmitterId, ref.transmitterFieldName);
@@ -220,6 +231,7 @@ public class DataBinder {
      */
     public void update(final IBindable source, final String fieldName, final Object oldValue, final Object newValue,
             final UpdateChain chain) {
+        Objects.requireNonNull(source, "source");
         if (!this.active) {
             throw new IllegalStateException("DataBinder '" + this.name + "' has been removed");
         }
@@ -230,11 +242,11 @@ public class DataBinder {
             return;
         }
 
-        List<WeakFieldChangeCallback> specificCallbacks = getSpecificCallbacks(source.getId(), fieldName);
+        List<WeakFieldChangeCallback<?>> specificCallbacks = getSpecificCallbacks(source.getId(), fieldName);
 
         // notify specific field listeners
-        List<WeakFieldChangeCallback> expiredCallbacks = new ArrayList<>();
-        for (WeakFieldChangeCallback callback : specificCallbacks) {
+        List<WeakFieldChangeCallback<?>> expiredCallbacks = new ArrayList<>();
+        for (WeakFieldChangeCallback<?> callback : specificCallbacks) {
             boolean executed = callback.execute(fieldName, oldValue, newValue, chain);
             if (!executed) {
                 expiredCallbacks.add(callback);
@@ -244,7 +256,7 @@ public class DataBinder {
     }
 
     private void removeExpiredCallbacks(final UUID sourceId, final String fieldName,
-            final List<WeakFieldChangeCallback> expiredCallbacks) {
+            final List<WeakFieldChangeCallback<?>> expiredCallbacks) {
         if (!expiredCallbacks.isEmpty()) {
             getSpecificCallbacks(sourceId, fieldName).removeAll(expiredCallbacks);
             cleanup(sourceId, fieldName);
@@ -259,13 +271,13 @@ public class DataBinder {
         });
     }
 
-    private List<WeakFieldChangeCallback> getSpecificCallbacks(final UUID id, final String fieldName) {
-        Map<String, List<WeakFieldChangeCallback>> fieldsCallbacks = this.transmitterBindings.get(id);
+    private List<WeakFieldChangeCallback<?>> getSpecificCallbacks(final UUID id, final String fieldName) {
+        Map<String, List<WeakFieldChangeCallback<?>>> fieldsCallbacks = this.transmitterBindings.get(id);
         if (fieldsCallbacks == null) {
             return new ArrayList<>();
         }
 
-        List<WeakFieldChangeCallback> specificCallbacks = fieldsCallbacks.get(fieldName);
+        List<WeakFieldChangeCallback<?>> specificCallbacks = fieldsCallbacks.get(fieldName);
         if (specificCallbacks == null) {
             return new ArrayList<>();
         }

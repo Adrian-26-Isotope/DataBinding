@@ -5,8 +5,8 @@ import java.util.Map;
 
 import org.adrian.databinding.BasicMasterContainer;
 import org.adrian.databinding.DataFactory;
-import org.adrian.databinding.DataSchema;
-import org.adrian.databinding.FieldDefinition;
+import org.adrian.databinding.core.DataSchema;
+import org.adrian.databinding.core.FieldDefinition;
 
 
 public class MasterData extends BasicMasterContainer {

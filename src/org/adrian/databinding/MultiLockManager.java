@@ -62,10 +62,14 @@ public class MultiLockManager {
             }
             return acquiredLocks;
         }
-        catch (Exception e) {
+        catch (RuntimeException e) {
             unlockAll(acquiredLocks);
             throw new LockAcquisitionException(
                     "Failed to acquire locks of type " + type + " for " + acquiredLocks.size() + " lock(s)", e);
+        }
+        catch (Error e) {
+            unlockAll(acquiredLocks);
+            throw e;
         }
     }
 

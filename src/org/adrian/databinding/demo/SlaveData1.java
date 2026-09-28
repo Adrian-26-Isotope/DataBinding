@@ -6,8 +6,8 @@ import java.util.Map;
 import org.adrian.databinding.BasicDataContainer;
 import org.adrian.databinding.BasicSlaveContainer;
 import org.adrian.databinding.DataFactory;
-import org.adrian.databinding.DataSchema;
-import org.adrian.databinding.FieldDefinition;
+import org.adrian.databinding.core.DataSchema;
+import org.adrian.databinding.core.FieldDefinition;
 
 /**
  * SlaveData1 that inherits all fields from MasterData with read-write access. And add a new field.

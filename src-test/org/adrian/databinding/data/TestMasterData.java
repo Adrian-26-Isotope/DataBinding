@@ -4,8 +4,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.adrian.databinding.BasicMasterContainer;
-import org.adrian.databinding.DataSchema;
-import org.adrian.databinding.FieldDefinition;
+import org.adrian.databinding.core.DataSchema;
+import org.adrian.databinding.core.FieldDefinition;
 
 /**
  * Test fixture: master container with three read-write {@code String} fields.

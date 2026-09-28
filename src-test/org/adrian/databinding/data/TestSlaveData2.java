@@ -2,8 +2,8 @@ package org.adrian.databinding.data;
 
 import org.adrian.databinding.BasicDataContainer;
 import org.adrian.databinding.BasicSlaveContainer;
-import org.adrian.databinding.DataSchema;
-import org.adrian.databinding.FieldDefinition;
+import org.adrian.databinding.core.DataSchema;
+import org.adrian.databinding.core.FieldDefinition;
 
 /**
  * Test fixture: read-only slave container with two fields — {@code name} and {@code notes}.

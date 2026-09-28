@@ -1,6 +1,9 @@
-package org.adrian.databinding;
+package org.adrian.databinding.core;
 
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Defines a field with its access permissions and provides factory methods
@@ -9,32 +12,34 @@ import java.util.Objects;
 public class FieldDefinition {
 
     /**
-     * Enumeration defining the access modes for fields.
+     * Enumeration defining the access modes for fields. Modes are combined via
+     * {@link EnumSet}&lt;{@link AccessMode}&gt; to express arbitrary combinations
+     * (e.g. {@code EnumSet.of(AccessMode.READ, AccessMode.WRITE)}).
      */
     @SuppressWarnings("javadoc")
     public enum AccessMode {
-                            READ_ONLY,
-                            READ_WRITE
+                            READ,
+                            WRITE
     }
 
     private final String fieldName;
-    private final AccessMode accessMode;
+    private final Set<AccessMode> accessModes;
     private final Class<?> type;
 
     /**
-     * Creates a new field definition with the specified name, access mode, and value type.
+     * Creates a new field definition with the specified name, access modes, and value type.
      * The type is used for write-time validation in {@code setFieldValue} / {@code initValues}
      * and for type-checked reads via {@code getFieldValue(name, type)}. Pass
      * {@code Object.class} to accept any value type.
      *
      * @param fieldName the name of the field
-     * @param accessMode the access permissions for the field
+     * @param accessModes the access permissions for the field
      * @param type the expected runtime type of the field's value
      */
-    public FieldDefinition(final String fieldName, final AccessMode accessMode, final Class<?> type) {
+    public FieldDefinition(final String fieldName, final EnumSet<AccessMode> accessModes, final Class<?> type) {
         this.fieldName = Objects.requireNonNull(fieldName, "fieldName");
-        this.accessMode = accessMode;
-        this.type = type;
+        this.accessModes = Collections.unmodifiableSet(EnumSet.copyOf(Objects.requireNonNull(accessModes, "accessModes")));
+        this.type = Objects.requireNonNull(type, "type");
     }
 
     /**
@@ -47,12 +52,12 @@ public class FieldDefinition {
     }
 
     /**
-     * Gets the access mode of this field.
+     * Gets the access modes of this field.
      *
-     * @return the access mode
+     * @return an unmodifiable set of access modes
      */
-    public AccessMode getAccessMode() {
-        return this.accessMode;
+    public Set<AccessMode> getAccessModes() {
+        return this.accessModes;
     }
 
     /**
@@ -70,7 +75,7 @@ public class FieldDefinition {
      * @return true if the field is readable
      */
     public boolean isReadable() {
-        return (this.accessMode == AccessMode.READ_ONLY) || (this.accessMode == AccessMode.READ_WRITE);
+        return this.accessModes.contains(AccessMode.READ);
     }
 
     /**
@@ -79,7 +84,7 @@ public class FieldDefinition {
      * @return true if the field is writable
      */
     public boolean isWritable() {
-        return (this.accessMode == AccessMode.READ_WRITE);
+        return this.accessModes.contains(AccessMode.WRITE);
     }
 
     /**
@@ -90,7 +95,7 @@ public class FieldDefinition {
      * @return a read-only field definition
      */
     public static FieldDefinition readOnly(final String fieldName, final Class<?> type) {
-        return new FieldDefinition(fieldName, AccessMode.READ_ONLY, type);
+        return new FieldDefinition(fieldName, EnumSet.of(AccessMode.READ), type);
     }
 
     /**
@@ -101,6 +106,6 @@ public class FieldDefinition {
      * @return a read-write field definition
      */
     public static FieldDefinition readWrite(final String fieldName, final Class<?> type) {
-        return new FieldDefinition(fieldName, AccessMode.READ_WRITE, type);
+        return new FieldDefinition(fieldName, EnumSet.of(AccessMode.READ, AccessMode.WRITE), type);
     }
 }

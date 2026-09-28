@@ -4,6 +4,9 @@ package org.adrian.databinding;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.adrian.databinding.core.DataBinder;
+import org.adrian.databinding.core.DataSchema;
+
 /**
  * Convenience base class for 'master' data containers that do not inherit from
  * another container. Provides constructors that capture the active

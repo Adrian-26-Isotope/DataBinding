@@ -1,10 +1,12 @@
-package org.adrian.databinding;
+package org.adrian.databinding.core;
+
+import java.util.UUID;
 
 /**
  * Test-only utility that provides {@code reset} and {@code drainOnce} operations for the active {@link DataBinder}
  * without polluting the production API.
  */
-final class TestDataBinder {
+public final class TestDataBinder {
 
     private TestDataBinder() {}
 
@@ -12,7 +14,7 @@ final class TestDataBinder {
      * Clears all binding registrations and phantom-reference tracking on the active {@link DataBinder} instance.
      * Intended for test setup/teardown only.
      */
-    static void reset() {
+    public static void reset() {
         DataBinder.getActive().clearAll();
     }
 
@@ -23,7 +25,18 @@ final class TestDataBinder {
      *
      * @return the number of phantom references processed
      */
-    static int drainOnce() {
+    public static int drainOnce() {
         return DataBinderCleaner.getInstance().drainQueue();
+    }
+
+    /**
+     * Directly invokes {@code cleanupReceiver} on the active {@link DataBinder} for the specified receiver UUID,
+     * bypassing the phantom-reference/GC mechanism. Allows tests to exercise the {@code bind()}/{@code cleanup()}
+     * race deterministically without relying on garbage-collection timing.
+     *
+     * @param receiverId the UUID of the receiver whose binding entries should be cleaned up
+     */
+    public static void forceCleanupReceiver(final UUID receiverId) {
+        DataBinder.getActive().cleanupReceiver(receiverId);
     }
 }

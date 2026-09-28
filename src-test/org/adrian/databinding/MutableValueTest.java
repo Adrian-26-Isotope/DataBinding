@@ -7,7 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.junit.jupiter.api.AfterAll;
+import org.adrian.databinding.core.Copyable;
+import org.adrian.databinding.core.DataBinder;
+import org.adrian.databinding.core.DataSchema;
+import org.adrian.databinding.core.FieldDefinition;
+import org.adrian.databinding.core.TestDataBinder;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -104,8 +109,8 @@ class MutableValueTest {
         }
     }
 
-    @AfterAll
-    static void tearDown() {
+    @AfterEach
+    void tearDown() {
         TestDataBinder.reset();
     }
 

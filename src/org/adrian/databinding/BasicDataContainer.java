@@ -12,6 +12,15 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import org.adrian.databinding.core.Copyable;
+import org.adrian.databinding.core.DataBinder;
+import org.adrian.databinding.core.DataSchema;
+import org.adrian.databinding.core.FieldChangeEvent;
+import org.adrian.databinding.core.FieldDefinition;
+import org.adrian.databinding.core.IBindable;
+import org.adrian.databinding.core.UpdateChain;
+import org.adrian.databinding.core.WeakFieldChangeCallback;
+
 /**
  * Base class that handles all data binding logic for data containers.
  * Provides thread-safe field access, automatic synchronization between bound
@@ -19,6 +28,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * and timestamp-based conflict resolution for concurrent updates.
  */
 public class BasicDataContainer implements IBindable {
+
+    private static final System.Logger LOGGER = System.getLogger(BasicDataContainer.class.getName());
 
     private final UUID id = UUID.randomUUID();
     private final DataSchema schema;
@@ -125,9 +136,11 @@ public class BasicDataContainer implements IBindable {
             Object value = entry.getValue();
 
             FieldDefinition fieldDef = getSchema().getFieldDefinition(fieldName);
-            if (fieldDef != null) {
-                validateFieldType(fieldDef, value);
+            if (fieldDef == null) {
+                LOGGER.log(System.Logger.Level.WARNING, "Unknown field name in initValues: {0}", fieldName);
+                continue;
             }
+            validateFieldType(fieldDef, value);
 
             AtomicReference<Object> field = getFieldValues().get(fieldName);
             if (field != null) {
@@ -204,7 +217,7 @@ public class BasicDataContainer implements IBindable {
      * @throws IllegalArgumentException if {@code value} is not {@code null} and not an
      *             instance of the field's declared type
      */
-    private static void validateFieldType(final FieldDefinition fieldDef, final Object value) {
+    protected static void validateFieldType(final FieldDefinition fieldDef, final Object value) {
         if ((value != null) && !fieldDef.getType().isInstance(value)) {
             throw new IllegalArgumentException("Field '" + fieldDef.getFieldName() + "' expects " +
                     fieldDef.getType().getName() + " but got " + value.getClass().getName());
@@ -292,6 +305,8 @@ public class BasicDataContainer implements IBindable {
             throw new IllegalArgumentException("Field '" + fieldName + "' not present.");
         }
 
+        validateFieldType(fieldDef, newValue);
+
         AtomicReference<Object> field = getFieldValues().get(fieldName);
         AtomicLong timestamp = getFieldTimestamps().get(fieldName);
         ReentrantReadWriteLock lock = this.fieldLocks.get(fieldName);
@@ -354,11 +369,27 @@ public class BasicDataContainer implements IBindable {
      * matters.</li>
      * </ul>
      *
-     * @param bindable the transmitter (source) object whose field changes should notify this container
+     * @param transmitter the transmitter (source) container whose field changes should notify this container
      * @param fieldName the field name to bind
      */
-    public void bindTo(final IBindable bindable, final String fieldName) {
-        getBinder().bind(bindable, fieldName, this, BasicDataContainer::onFieldChange);
+    public void bindTo(final BasicDataContainer transmitter, final String fieldName) {
+        final FieldDefinition rxField = getSchema().getFieldDefinition(fieldName);
+        if (rxField == null) {
+            throw new IllegalArgumentException(
+                    "Field '" + fieldName + "' not present in receiver schema");
+        }
+        final FieldDefinition txField = transmitter.getSchema().getFieldDefinition(fieldName);
+        if (txField == null) {
+            throw new IllegalArgumentException(
+                    "Field '" + fieldName + "' not present in transmitter schema");
+        }
+        if (!rxField.getType().isAssignableFrom(txField.getType())) {
+            throw new IllegalArgumentException(
+                    "Type mismatch on field '" + fieldName + "': receiver expects " +
+                            rxField.getType().getName() + ", transmitter provides " +
+                            txField.getType().getName());
+        }
+        getBinder().bind(transmitter, fieldName, this, BasicDataContainer::onFieldChange);
     }
 
     /**
@@ -367,7 +398,7 @@ public class BasicDataContainer implements IBindable {
      * @param event the field change event containing the receiver, field name,
      *            new value, and update chain
      */
-    private static void onFieldChange(final FieldChangeEvent event) {
+    private static void onFieldChange(final FieldChangeEvent<BasicDataContainer> event) {
         final BasicDataContainer receiver = event.receiver();
         final UpdateChain chain = event.chain();
         if (chain.contains(receiver.getId())) {

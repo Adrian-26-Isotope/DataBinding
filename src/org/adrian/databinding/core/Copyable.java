@@ -1,8 +1,8 @@
-package org.adrian.databinding;
+package org.adrian.databinding.core;
 
 /**
  * Opt-in interface for mutable field-value types that should be defensively
- * copied when returned from {@link BasicDataContainer#getFieldValue}.
+ * copied when returned from a container's field-access method.
  * <p>
  * The data-binding framework's propagation contract relies on
  * {@code setFieldValue} being the only path that triggers an

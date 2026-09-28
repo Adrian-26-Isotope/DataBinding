@@ -1,6 +1,6 @@
 # DataBinding
 
-A thread-safe Java data binding framework that enables automatic bidirectional synchronization between data objects with different field access patterns and schemas.
+A thread-safe Java data binding framework that enables automatic bidirectional synchronization between data objects with different field access patterns and schemas. The core binding engine depends only on the [`IBindable`](src/org/adrian/databinding/core/IBindable.java) interface; the `Basic*Container` classes are an optional convenience layer that users may use or replace with their own `IBindable` implementation.
 
 ## Overview
 
@@ -14,13 +14,14 @@ This framework provides a declarative approach to data binding where you can:
 ## Features
 
 - **Thread-Safe**: All operations are thread-safe using fine-grained locking
-- **Declarative Schema Definition**: Define field access patterns using [`DataSchema`](src/org/adrian/databinding/DataSchema.java) and [`FieldDefinition`](src/org/adrian/databinding/FieldDefinition.java)
+- **Declarative Schema Definition**: Define field access patterns using [`DataSchema`](src/org/adrian/databinding/core/DataSchema.java) and [`FieldDefinition`](src/org/adrian/databinding/core/FieldDefinition.java)
 - **Automatic Binding**: Objects are automatically bound during creation via [`DataFactory`](src/org/adrian/databinding/DataFactory.java)
-- **Cycle Prevention**: Built-in cycle detection prevents infinite update loops using [`UpdateChain`](src/org/adrian/databinding/UpdateChain.java)
+- **Cycle Prevention**: Built-in cycle detection prevents infinite update loops using [`UpdateChain`](src/org/adrian/databinding/core/UpdateChain.java)
 - **Conflict Resolution**: Timestamp-based resolution for concurrent updates
 - **Flexible Access Control**: Per-field read-only or read-write access
+- **Type-Safe Binding**: Field types are validated at bind time and during value propagation — mismatches between transmitter and receiver schemas are rejected before any data flows
 - **Memory Leak Prevention**: Automatic cleanup of bindings when objects are garbage collected
-- **Multiple Registries**: Named [`DataBinder`](src/org/adrian/databinding/DataBinder.java) instances allow independent binding graphs in a single JVM, sharing a single cleanup daemon
+- **Multiple Registries**: Named [`DataBinder`](src/org/adrian/databinding/core/DataBinder.java) instances allow independent binding graphs in a single JVM, sharing a single cleanup daemon
 
 ## Table of Contents
 
@@ -54,7 +55,7 @@ public class MyMasterData extends BasicMasterContainer {
             NAME_FIELD, name,
             VALUE_FIELD, value
         ));
-        // DONT call setFieldValue(NAME_FIELD, name) in constructor - throws exception for read only fields.
+        // DONT call setFieldValue() in constructor - throws exception for read only fields.
     }
 
     public String getName() { return getFieldValue(NAME_FIELD, String.class); }
@@ -106,15 +107,32 @@ System.out.println(slave.getName()); // Prints: "updated"
 
 ### Core Components
 
-- **[`BasicDataContainer`](src/org/adrian/databinding/BasicDataContainer.java)**: Base class providing all data binding functionality
+The framework is split into two layers: a **core** engine (`org.adrian.databinding.core`) that depends only on [`IBindable`](src/org/adrian/databinding/core/IBindable.java), and an optional **convenience** layer (`org.adrian.databinding`) providing ready-to-use container classes. The core engine can be used with any `IBindable` implementation; the `Basic*Container` classes are one such implementation.
+
+#### Core Layer (`org.adrian.databinding.core`)
+
+- **[`IBindable`](src/org/adrian/databinding/core/IBindable.java)**: Interface for objects that can participate in data binding; provides a unique `UUID` for tracking binding relationships
+- **[`DataBinder`](src/org/adrian/databinding/core/DataBinder.java)**: Central registry managing binding relationships; a named multiton so independent binding graphs can coexist in one JVM
+- **[`DataBinderCleaner`](src/org/adrian/databinding/core/DataBinderCleaner.java)**: Shared singleton daemon thread that cleans up stale bindings after garbage collection
+- **[`WeakFieldChangeCallback`](src/org/adrian/databinding/core/WeakFieldChangeCallback.java)**: Wraps callbacks with weak references to allow receivers to be garbage collected
+- **[`FieldChangeEvent`](src/org/adrian/databinding/core/FieldChangeEvent.java)**: Immutable record bundling receiver, field name, old/new values, and update chain; parameterized by the receiver type `<T extends IBindable>`
+- **[`FieldChangeCallback`](src/org/adrian/databinding/core/FieldChangeCallback.java)**: Functional interface for handling field change notifications, parameterized by `<T extends IBindable>`
+- **[`UpdateChain`](src/org/adrian/databinding/core/UpdateChain.java)**: Cycle detection (UUID set) and timestamp management (monotonic counter)
+- **[`DataSchema`](src/org/adrian/databinding/core/DataSchema.java)**: Defines field structure and access permissions
+- **[`FieldDefinition`](src/org/adrian/databinding/core/FieldDefinition.java)**: Specifies individual field access modes (`READ` / `WRITE`, combined via `EnumSet`)
+- **[`Copyable`](src/org/adrian/databinding/core/Copyable.java)**: Opt-in interface for mutable types that need defensive copies on read
+- **[`Scope`](src/org/adrian/databinding/core/Scope.java)**: `AutoCloseable` scope returned by `DataBinder.setActive()` that restores the previous active binder name when closed
+
+#### Convenience Layer (`org.adrian.databinding`)
+
+- **[`BasicDataContainer`](src/org/adrian/databinding/BasicDataContainer.java)**: Base class providing all data binding functionality (implements `IBindable`)
 - **[`BasicMasterContainer`](src/org/adrian/databinding/BasicMasterContainer.java)**: Convenience base for master containers (no parent)
 - **[`BasicSlaveContainer`](src/org/adrian/databinding/BasicSlaveContainer.java)**: Convenience base for slave containers (copies values from a master)
-- **[`DataSchema`](src/org/adrian/databinding/DataSchema.java)**: Defines field structure and access permissions
-- **[`FieldDefinition`](src/org/adrian/databinding/FieldDefinition.java)**: Specifies individual field access modes
 - **[`DataFactory`](src/org/adrian/databinding/DataFactory.java)**: Thread-safe factory for creating bound objects
-- **[`DataBinder`](src/org/adrian/databinding/DataBinder.java)**: Central registry managing binding relationships; a named multiton so independent binding graphs can coexist in one JVM
-- **[`UpdateChain`](src/org/adrian/databinding/UpdateChain.java)**: Cycle detection and timestamp management
-- **[`DataBinderCleaner`](src/org/adrian/databinding/DataBinderCleaner.java)** Daemon thread to ensure memory is cleaned properly
+- **[`DataObjectBuilder`](src/org/adrian/databinding/DataObjectBuilder.java)**: Functional interface `(schema, master) -> T` used by `DataFactory.createFrom`
+- **[`MultiLockManager`](src/org/adrian/databinding/MultiLockManager.java)**: Safely acquires multiple locks in consistent order
+- **[`DataContainerPrinter`](src/org/adrian/databinding/DataContainerPrinter.java)**: Formats container field state for debugging
+- **`LockAcquisitionException`**: Thrown when multi-lock acquisition fails
 
 ### Thread Safety
 
@@ -136,8 +154,8 @@ For most practical applications, this approach provides adequate consistency whi
 
 The framework includes a sophisticated automatic cleanup mechanism to prevent memory leaks:
 
-- **[`DataBinderCleaner`](src/org/adrian/databinding/DataBinderCleaner.java)**: Uses `PhantomReference` to detect when data objects are garbage collected.
-- **[`WeakFieldChangeCallback`](src/org/adrian/databinding/WeakFieldChangeCallback.java)**: Wraps callbacks with weak references to prevent callback owners not being garbage collected.
+- **[`DataBinderCleaner`](src/org/adrian/databinding/core/DataBinderCleaner.java)**: Uses `PhantomReference` to detect when data objects are garbage collected.
+- **[`WeakFieldChangeCallback`](src/org/adrian/databinding/core/WeakFieldChangeCallback.java)**: Wraps callbacks with weak references to prevent callback owners not being garbage collected.
 - **Automatic Cleanup**: Background daemon thread continuously monitors and removes stale bindings.
 - **Dual Tracking**: Separate tracking for transmitters and receivers ensures complete cleanup.
 
@@ -146,7 +164,7 @@ The cleanup system automatically removes:
 - Receiver callbacks when the target object is garbage collected
 - Expired weak references that point to collected objects
 
-This ensures that the [`DataBinder`](src/org/adrian/databinding/DataBinder.java) cache doesn't prevent garbage collection of bound objects, preventing memory leaks in long-running applications.
+This ensures that the [`DataBinder`](src/org/adrian/databinding/core/DataBinder.java) cache doesn't prevent garbage collection of bound objects, preventing memory leaks in long-running applications.
 
 ## Advanced Usage
 
@@ -156,13 +174,13 @@ By default all containers register with the **default** `DataBinder` instance. Y
 
 ```java
 // Use a dedicated registry for this scope
-try (DataBinder.Scope scope = DataBinder.setActive("session-1")) {
+try (Scope scope = DataBinder.setActive("session-1")) {
     MyMasterData master = new MyMasterData("initial", 42);   // binds into "session-1"
     ReadOnlySlaveData slave = master.createSlave();          // inherits master's registry
 } // "default" restored automatically
 
 // A different registry is fully isolated from "session-1"
-try (DataBinder.Scope scope = DataBinder.setActive("session-2")) {
+try (Scope scope = DataBinder.setActive("session-2")) {
     MyMasterData other = new MyMasterData("other", 0);       // binds into "session-2"
 } // "default" restored automatically
 ```
@@ -172,6 +190,8 @@ Scopes nesting: closing an inner scope restores the outer scope's active name, n
 ### Manual Binding with `bindTo` and `bind`
 
 `BasicDataContainer.bindTo(transmitter, fieldName)` and `DataBinder.bind(transmitter, fieldName, receiver, callback)` are public APIs for cases where the schema-driven `DataFactory.createFrom` flow is too restrictive — for example, binding two containers with different field names, wiring a custom `FieldChangeCallback`, or building a topology that isn't a simple master/slave pair.
+
+`bindTo` validates that the field exists in both the receiver's and transmitter's schemas and that the receiver's field type is assignable from the transmitter's field type, throwing `IllegalArgumentException` on mismatch. `DataBinder.bind` does not perform schema validation — it operates on raw `IBindable` references — so type safety is the caller's responsibility when using the lower-level API.
 
 `DataFactory.createFrom` does two things that manual binding does **not**:
 
@@ -183,6 +203,7 @@ When you bind manually, you are responsible for both. The risks:
 | Risk | What happens | Mitigation |
 |------|-------------|------------|
 | **Malformed topology** | Self-loops (binding a container to itself), mismatched field names, or missing reverse bindings are not detected. The cycle breaker prevents infinite loops at runtime, but a half-wired topology produces silent one-way-only sync. | Wire both directions explicitly when bidirectional sync is needed (as `DataFactory.setupBinding` does). |
+| **Type mismatch (via `bindTo`)** | `bindTo` checks that the field exists in both schemas and that the receiver's type is assignable from the transmitter's type. A mismatch throws `IllegalArgumentException` before any data flows. | Use `bindTo` for type-safe manual binding. If you use `DataBinder.bind` directly, validate types yourself. |
 | **No-capture constraint** | `DataBinder.bind` accepts an arbitrary `FieldChangeCallback`. If the callback captures the receiver (e.g. an instance method reference `receiver::onFieldChange` or a lambda closing over `receiver`), the `WeakReference` in `WeakFieldChangeCallback` becomes useless — the receiver can never be garbage collected, causing a memory leak. | Use a static method reference (like `BasicDataContainer::onFieldChange`) that receives the receiver as a parameter, never via capture. See [Weak References](#weak-references-letting-the-receiver-be-collected) in the Developer & Maintainer Guide. |
 
 > [!IMPORTANT]
@@ -201,7 +222,7 @@ To prevent this, `getFieldValue` wraps mutable values before returning them:
 | `Copyable<T>` (custom opt-in) | `copy()` | One allocation per call |
 | Immutable types (`String`, `Integer`, records, …) | Returned as-is | None |
 
-**Custom mutable types:** implement [`Copyable<T>`](src/org/adrian/databinding/Copyable.java) so that `getFieldValue` returns a defensive copy. `copy()` is called on every read, so it should be cheap. The copy is shallow by convention; if the object holds nested mutable references, deep-copy them in `copy()`.
+**Custom mutable types:** implement [`Copyable<T>`](src/org/adrian/databinding/core/Copyable.java) so that `getFieldValue` returns a defensive copy. `copy()` is called on every read, so it should be cheap. The copy is shallow by convention; if the object holds nested mutable references, deep-copy them in `copy()`.
 
 > [!IMPORTANT]
 > **Prefer immutable types (e.g. Java records) for field values.** `Copyable` is an escape hatch for when mutability is unavoidable. A custom mutable type that does *not* implement `Copyable` will be returned as a live reference — in-place mutation bypasses propagation and, for read-only slaves, breaks access control.
@@ -225,7 +246,7 @@ Every binding is a directed relationship between two objects for a specific fiel
 - **Transmitter** — the object *whose* field change triggers notification. When a transmitter's field is written, `DataBinder` looks up the transmitter's UUID in its forward index to find all registered callbacks.
 - **Receiver** — the object that *gets notified* and updated. It is the target of the callback; its `onFieldChange` method is invoked with the new value.
 
-In `DataBinder.bind(transmitter, fieldName, receiver, callback)`, the transmitter is the source and the receiver is the destination. In `BasicDataContainer.bindTo(transmitter, fieldName)`, the calling object (`this`) registers *itself* as the receiver of the transmitter's changes.
+In `DataBinder.bind(transmitter, fieldName, receiver, callback)`, the transmitter is the source and the receiver is the destination. In `BasicDataContainer.bindTo(transmitter, fieldName)`, the calling object (`this`) registers *itself* as the receiver of the transmitter's changes. `bindTo` takes `BasicDataContainer` (not `IBindable`) so it can validate field types against both schemas at bind time.
 
 How this maps to master/slave in `DataFactory.setupBinding`:
 
@@ -234,7 +255,7 @@ How this maps to master/slave in `DataFactory.setupBinding`:
 | `slave.bindTo(master, field)` | master | slave | master → slave |
 | `master.bindTo(slave, field)` | slave | master | slave → master |
 
-A `READ_WRITE` field produces *both* calls, so each object is simultaneously a transmitter and a receiver for that field — which is exactly why `DataBinderCleaner` tracks transmitter and receiver phantom references separately (see [Memory Management Lifecycle](#memory-management-lifecycle)). A `READ_ONLY` field only registers `slave.bindTo(master, ...)`, so the slave is purely a receiver and the master is purely a transmitter for that field.
+A read-write field produces *both* calls, so each object is simultaneously a transmitter and a receiver for that field — which is exactly why `DataBinderCleaner` tracks transmitter and receiver phantom references separately (see [Memory Management Lifecycle](#memory-management-lifecycle)). A read-only field only registers `slave.bindTo(master, ...)`, so the slave is purely a receiver and the master is purely a transmitter for that field.
 
 ### How a Field Update Propagates
 
@@ -242,10 +263,12 @@ When a field is set, a single `UpdateChain` travels through the entire binding g
 
 ```
 user calls container.setFieldValue("field", value)          // public setter
-  ├─ validates field isWritable()                           // READ_ONLY fields rejected here
+  ├─ validates field isWritable()                           // read-only fields rejected here
+  ├─ validateFieldType(fieldDef, value)                     // type check
   ├─ new UpdateChain(timestamp = monotonic counter)        // one timestamp per write
   ├─ chain.add(this.id)
   └─ setFieldValue("field", value, chain)                   // internal setter
+       ├─ validateFieldType(fieldDef, value)                // type check
        ├─ acquire field write lock
        ├─ if chain.timestamp <= field.timestamp → REJECT    // stale / duplicate
        ├─ field.timestamp = chain.timestamp
@@ -273,33 +296,37 @@ Key takeaways for maintainers:
 
 There are two `setFieldValue` paths, and they enforce access control differently:
 
-| Path | Checks `isWritable()`? | Checks timestamp? | Triggers propagation? | Used by |
-|------|:---:|:---:|:---:|---|
-| `setFieldValue(String, Object)` — public | Yes | Yes (new chain) | Yes | User code |
-| `setFieldValue(String, Object, UpdateChain)` — private | **No** | Yes | Yes | Propagation / callbacks |
-| `initValues(Map)` — private | No | No | **No** | Construction only |
+| Path | Checks `isWritable()`? | Checks timestamp? | Validates type? | Triggers propagation? | Used by |
+|------|:---:|:---:|:---:|:---:|---|
+| `setFieldValue(String, Object)` — public | Yes | Yes (new chain) | Yes | Yes | User code |
+| `setFieldValue(String, Object, UpdateChain)` — private | **No** | Yes | Yes | Yes | Propagation / callbacks |
+| `initValues(Map)` — private | No | No | No | **No** | Construction only |
 
-The private setter deliberately skips the `isWritable()` check so that a `READ_ONLY` field on a slave *can* be updated by propagation from the master — it just can't be set directly by user code. `initValues` is the third path: it writes `AtomicReference` values directly, sets no timestamps, and fires no callbacks. It is `private` and only reachable from constructors, so it cannot be called post-construction. For slave containers, `BasicSlaveContainer` calls `initValues` with the slave's own initial values, then `copyValuesFromMaster` copies shared fields from the master — fields present in both are overwritten by the master's values.
+The private setter deliberately skips the `isWritable()` check so that a read-only field on a slave *can* be updated by propagation from the master — it just can't be set directly by user code. Both the public and private setters validate the field type via `validateFieldType` before writing. `initValues` is the third path: it writes `AtomicReference` values directly, sets no timestamps, and fires no callbacks. It is `private` and only reachable from constructors, so it cannot be called post-construction. For slave containers, `BasicSlaveContainer` calls `initValues` with the slave's own initial values, then `copyValuesFromMaster` copies shared fields from the master — fields present in both are overwritten by the master's values, and `copyValuesFromMaster` validates each copied field's type before writing it.
 
 ### Schema-Driven Asymmetric Binding
 
-Binding topology is determined entirely by the **slave's** schema, wired in [`DataFactory.setupBinding`](src/org/adrian/databinding/DataFactory.java):
+Binding topology is determined by the **slave's** schema and the fields shared with the master's schema, wired in [`DataFactory.setupBinding`](src/org/adrian/databinding/DataFactory.java):
 
 ```
-for each readable field in slave's schema:  slave.bindTo(master, field)   // master → slave
-for each writable field in slave's schema:  master.bindTo(slave, field)   // slave → master
+for each readable field in slave's schema, if also in master's schema:
+    slave.bindTo(master, field)                              // master → slave
+for each writable field in slave's schema, if also in master's schema:
+    master.bindTo(slave, field)                              // slave → master
 ```
+
+Fields present only in the slave's schema are skipped — binding is set up only for fields that exist in both schemas. Each `bindTo` call also validates that the receiver's field type is assignable from the transmitter's field type, throwing `IllegalArgumentException` on mismatch.
 
 | Slave field mode | Master → slave | Slave → master | Effect |
 |------------------|:---:|:---:|---|
-| `READ_ONLY` | yes | no | One-way: slave mirrors master, user can't write |
-| `READ_WRITE` | yes | yes | Bidirectional sync |
+| `readOnly()` | yes | no | One-way: slave mirrors master, user can't write |
+| `readWrite()` | yes | yes | Bidirectional sync |
 
-Because `READ_WRITE` fields appear in *both* the readable and writable lists, they get two bindings — one in each direction. `bindTo` and `DataBinder.bind` are public for advanced use cases that `DataFactory.createFrom` cannot express. See [Advanced: Manual Binding](#advanced-manual-binding) for the risks and contract.
+Because read-write fields appear in *both* the readable and writable lists, they get two bindings — one in each direction. `bindTo` and `DataBinder.bind` are public for advanced use cases that `DataFactory.createFrom` cannot express. See [Manual Binding with `bindTo` and `bind`](#manual-binding-with-bindto-and-bind) for the risks and contract.
 
 ### The `DataBinder` Dual Index
 
-[`DataBinder`](src/org/adrian/databinding/DataBinder.java) is a named multiton; each instance holds two indices over its set of bindings:
+[`DataBinder`](src/org/adrian/databinding/core/DataBinder.java) is a named multiton; each instance holds two indices over its set of bindings:
 
 - **Forward index** (`transmitterBindings`): `transmitter UUID → field name → list<WeakFieldChangeCallback>`. Used at notification time — when a transmitter's field changes, look up the callbacks to invoke.
 - **Reverse index** (`receiverBindings`): `receiver UUID → list<BindingReference>`. Used at cleanup time — when a receiver is GC'd, quickly find every binding that points *at* it without scanning the forward index.
@@ -317,7 +344,7 @@ The `UpdateChain` serves two roles simultaneously:
 
 #### The Problem: DataBinder Outlives the Data Objects
 
-[`DataBinder`](src/org/adrian/databinding/DataBinder.java) is a named multiton — each named instance lives until explicitly removed via `DataBinder.remove(name)`. Every binding registers a `FieldChangeCallback` *strongly* in the forward index (`transmitter UUID → field → callback list`). If that callback held a strong reference to the receiver object, the receiver could never be garbage collected as long as the `DataBinder` instance exists — even if the rest of the application has dropped all references to it. In a long-running application this would be a growing memory leak: every master/slave pair ever created would stay alive forever.
+[`DataBinder`](src/org/adrian/databinding/core/DataBinder.java) is a named multiton — each named instance lives until explicitly removed via `DataBinder.remove(name)`. Every binding registers a `FieldChangeCallback` *strongly* in the forward index (`transmitter UUID → field → callback list`). If that callback held a strong reference to the receiver object, the receiver could never be garbage collected as long as the `DataBinder` instance exists — even if the rest of the application has dropped all references to it. In a long-running application this would be a growing memory leak: every master/slave pair ever created would stay alive forever.
 
 The framework solves this with two Java reference types that let the GC reclaim objects while still allowing `DataBinder` to *detect* that they are gone and clean up afterward.
 
@@ -325,7 +352,7 @@ The framework solves this with two Java reference types that let the GC reclaim 
 
 A `WeakReference` holds a reference to an object *without preventing* the GC from collecting it. As long as some other part of the application holds a strong reference to the object, `weakRef.get()` returns it. Once the last strong reference is gone, the GC is free to collect the object, and subsequent `weakRef.get()` calls return `null`.
 
-[`WeakFieldChangeCallback`](src/org/adrian/databinding/WeakFieldChangeCallback.java) wraps each callback with a `WeakReference` to the **receiver** (the owner that should be notified). This breaks the strong link:
+[`WeakFieldChangeCallback`](src/org/adrian/databinding/core/WeakFieldChangeCallback.java) wraps each callback with a `WeakReference` to the **receiver** (the owner that should be notified). This breaks the strong link:
 
 ```
 DataBinder (named multiton instance)
@@ -357,7 +384,7 @@ transmitterMap:  PhantomReference<IBindable> → UUID
 receiverMap:     PhantomReference<IBindable> → UUID
 ```
 
-[`DataBinderCleaner`](src/org/adrian/databinding/DataBinderCleaner.java) is a shared singleton that runs a single platform daemon thread blocking on `referenceQueue.remove()` (no timeout). When the GC collects an `IBindable` and enqueues its phantom reference, the thread wakes up, looks up the owning `DataBinder` and UUID from a side map, and calls `DataBinder.cleanupTransmitter()` or `DataBinder.cleanupReceiver()` to remove the corresponding entries from the indices. Because phantom refs are enqueued *after* finalization, this cleanup runs only when the object is truly unreachable — there is no risk of operating on a half-collected object.
+[`DataBinderCleaner`](src/org/adrian/databinding/core/DataBinderCleaner.java) is a shared singleton that runs a single platform daemon thread blocking on `referenceQueue.remove()` (no timeout). When the GC collects an `IBindable` and enqueues its phantom reference, the thread wakes up, looks up the owning `DataBinder` and UUID from a side map, and calls `DataBinder.cleanupTransmitter()` or `DataBinder.cleanupReceiver()` to remove the corresponding entries from the indices. Because phantom refs are enqueued *after* finalization, this cleanup runs only when the object is truly unreachable — there is no risk of operating on a half-collected object.
 
 After processing, `phantomRef.clear()` is called explicitly because — unlike weak/soft references — phantom references are **not** auto-cleared by the GC. Without `clear()`, the `PhantomReference` object would remain as a key in the side map indefinitely.
 
@@ -369,7 +396,7 @@ After processing, `phantomRef.clear()` is called explicitly because — unlike w
 | 2. Receiver cleanup | `PhantomReference` (receiver) | Reverse-index entries | Proactively, via `DataBinderCleaner` daemon after GC | All bindings pointing *at* the GC'd receiver |
 | 3. Transmitter cleanup | `PhantomReference` (transmitter) | Forward-index entries | Proactively, via `DataBinderCleaner` daemon after GC | The entire transmitter entry (all fields, all callbacks) |
 
-Layer 1 is **lazy** — it only runs when a write happens, so it handles the common case efficiently. Layers 2 and 3 are **proactive** — they guarantee cleanup even if no writes ever occur again, closing the gap that lazy expiry alone would leave. The split between receiver and transmitter cleanup exists because a single object can be both (for a `READ_WRITE` field), so each role is tracked and cleaned independently.
+Layer 1 is **lazy** — it only runs when a write happens, so it handles the common case efficiently. Layers 2 and 3 are **proactive** — they guarantee cleanup even if no writes ever occur again, closing the gap that lazy expiry alone would leave. The split between receiver and transmitter cleanup exists because a single object can be both (for a read-write field), so each role is tracked and cleaned independently.
 
 ### Concurrency Model
 
@@ -385,11 +412,12 @@ Layer 1 is **lazy** — it only runs when a write happens, so it handles the com
 
 ### Key Invariants for Maintainers
 
-- `DataFactory.createFrom` is the **recommended** entry point that sets up bindings with snapshot locking and validation. `bindTo` and `DataBinder.bind` are public for advanced use but bypass those guarantees — see [Advanced: Manual Binding](#advanced-manual-binding).
+- `DataFactory.createFrom` is the **recommended** entry point that sets up bindings with snapshot locking and validation. `bindTo` and `DataBinder.bind` are public for advanced use but bypass those guarantees — see [Manual Binding with `bindTo` and `bind`](#manual-binding-with-bindto-and-bind).
 - `initValues` bypasses timestamps and propagation — it is `private` and only reachable from constructors. `BasicMasterContainer` / `BasicSlaveContainer` constructors call it with the container's own initial values. For slaves, `copyValuesFromMaster` then copies shared fields from the master, overwriting any values set by `initValues` for those fields.
 - `getFieldValue` wraps mutable values (unmodifiable views for collections, defensive copies for arrays and `Copyable` types) to prevent in-place mutation from bypassing the propagation contract. Always use `setFieldValue` with a new value to change a field. Prefer immutable field types; use `Copyable<T>` only when mutability is unavoidable.
-- The public setter enforces `isWritable()`; the private setter (propagation path) does not. Don't "fix" this asymmetry — it's how `READ_ONLY` fields receive master updates.
-- `DataBinder` is a named multiton. New containers capture the thread-local active instance (`DataBinder.getActive()`) at construction into a `final` field; slaves inherit the master's instance. Use `DataBinder.setActive(name)` (returns an `AutoCloseable` scope) to scope a binding graph, or the `(schema, binder)` constructor for explicit injection.
+- The public setter enforces `isWritable()`; the private setter (propagation path) does not. Don't "fix" this asymmetry — it's how read-only fields receive master updates. Both setters validate the field type via `validateFieldType` before writing.
+- `bindTo` validates that the field exists in both the receiver's and transmitter's schemas and that the receiver's field type is assignable from the transmitter's field type. `DataBinder.bind` does not — it operates on raw `IBindable` references.
+- `DataBinder` is a named multiton. New containers capture the thread-local active instance (`DataBinder.getActive()`) at construction into a `final` field; slaves inherit the master's instance. Use `DataBinder.setActive(name)` (returns a `Scope` — an `AutoCloseable`) to scope a binding graph, or the `(schema, binder)` constructor for explicit injection.
 - `DataBinderCleaner` is a package-private shared singleton. A single platform daemon thread starts when the class is first loaded and runs for the JVM lifetime, blocking on `referenceQueue.remove()` (no timeout). Any `Throwable` from the loop body is logged and the loop continues after a short backoff — the shared cleaner never exits, so all `DataBinder` instances retain cleanup coverage. Tests that depend on cleanup (e.g. `DataBinderCleanupTest`) force GC and sleep, so they can be timing-sensitive.
 - Field lookup in `DataSchema` is O(1) (`HashMap`-backed). Fine for schemas of any size.
 

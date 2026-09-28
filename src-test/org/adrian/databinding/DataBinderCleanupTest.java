@@ -4,7 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.HashMap;
 
-import org.junit.jupiter.api.AfterAll;
+import org.adrian.databinding.core.DataBinder;
+import org.adrian.databinding.core.DataSchema;
+import org.adrian.databinding.core.FieldDefinition;
+import org.adrian.databinding.core.TestDataBinder;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -18,8 +22,8 @@ public class DataBinderCleanupTest {
 
     private static final long GC_RETRY_SLEEP_MS = 100L;
 
-    @AfterAll
-    static void tearDown() {
+    @AfterEach
+    void tearDown() {
         TestDataBinder.reset();
     }
 

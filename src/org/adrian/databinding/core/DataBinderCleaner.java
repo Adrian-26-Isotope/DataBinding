@@ -1,4 +1,4 @@
-package org.adrian.databinding;
+package org.adrian.databinding.core;
 
 import java.lang.ref.PhantomReference;
 import java.lang.ref.ReferenceQueue;
